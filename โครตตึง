@@ -1,0 +1,250 @@
+-- โหลด Rayfield Library
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Galaxy Hub | Event & Combat",
+   LoadingTitle = "กำลังโหลดระบบ...",
+   LoadingSubtitle = "by Assistant",
+   ConfigurationSaving = {
+      Enabled = false
+   },
+   KeySystem = false
+})
+
+----------------------------------------------------------------
+-- SERVICES & VARIABLES
+----------------------------------------------------------------
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Toggle States
+local AimbotEnabled = false
+local ESPEnabled = false
+local ItemESPEnabled = false
+local FOVVisible = false
+local FOVRadius = 100
+local WalkSpeedValue = 16
+local JumpPowerValue = 50
+
+----------------------------------------------------------------
+-- Anti-Ban (Bypass Client Detection)
+----------------------------------------------------------------
+pcall(function()
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        if not checkcaller() and (method == "Kick" or method == "kick") then
+            return nil
+        end
+        return oldNamecall(self, ...)
+    end)
+end)
+
+----------------------------------------------------------------
+-- FOV CIRCLE SYSTEM
+----------------------------------------------------------------
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 2
+FOVCircle.Color = Color3.fromRGB(255, 0, 0)
+FOVCircle.Filled = false
+FOVCircle.Transparency = 1
+FOVCircle.NumSides = 64
+
+RunService.RenderStepped:Connect(function()
+    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FOVCircle.Radius = FOVRadius
+    FOVCircle.Visible = FOVVisible
+end)
+
+----------------------------------------------------------------
+-- AIMBOT HELPER
+----------------------------------------------------------------
+local function GetClosestPlayerInFOV()
+    local ClosestPlayer = nil
+    local ShortestDistance = FOVRadius
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") and player.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
+            local pos, onScreen = Camera:WorldToViewportPoint(player.Character.Head.Position)
+            if onScreen then
+                local distance = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)).Magnitude
+                if distance < ShortestDistance then
+                    ShortestDistance = distance
+                    ClosestPlayer = player
+                end
+            end
+        end
+    end
+    return ClosestPlayer
+end
+
+RunService.RenderStepped:Connect(function()
+    if AimbotEnabled then
+        local target = GetClosestPlayerInFOV()
+        if target and target.Character and target.Character:FindFirstChild("Head") then
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Character.Head.Position)
+        end
+    end
+end)
+
+----------------------------------------------------------------
+-- ESP (PLAYER & ITEM)
+----------------------------------------------------------------
+local Highlights = {}
+
+local function UpdateESP()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            if ESPEnabled then
+                if not player.Character:FindFirstChild("PlayerHighlight") then
+                    local hl = Instance.new("Highlight")
+                    hl.Name = "PlayerHighlight"
+                    hl.FillColor = Color3.fromRGB(255, 0, 0)
+                    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.Parent = player.Character
+                end
+            else
+                if player.Character:FindFirstChild("PlayerHighlight") then
+                    player.Character.PlayerHighlight:Destroy()
+                end
+            end
+        end
+    end
+end
+
+RunService.RenderStepped:Connect(UpdateESP)
+
+----------------------------------------------------------------
+-- UI TABS
+----------------------------------------------------------------
+local MainTab = Window:CreateTab("Main Features", 4483362458)
+local CombatTab = Window:CreateTab("Combat & ESP", 4483362458)
+local EventTab = Window:CreateTab("Event / Items", 4483362458)
+
+-- Movement Features
+MainTab:CreateSlider({
+   Name = "ความเร็วในการวิ่ง (WalkSpeed)",
+   Range = {16, 200},
+   Increment = 1,
+   Suffix = "Speed",
+   CurrentValue = 16,
+   Flag = "SpeedSlider",
+   Callback = function(Value)
+       WalkSpeedValue = Value
+       if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+           LocalPlayer.Character.Humanoid.WalkSpeed = WalkSpeedValue
+       end
+   end,
+})
+
+MainTab:CreateSlider({
+   Name = "ความสูงในการกระโดด (JumpPower)",
+   Range = {50, 300},
+   Increment = 5,
+   Suffix = "Power",
+   CurrentValue = 50,
+   Flag = "JumpSlider",
+   Callback = function(Value)
+       JumpPowerValue = Value
+       if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+           LocalPlayer.Character.Humanoid.UseJumpPower = true
+           LocalPlayer.Character.Humanoid.JumpPower = JumpPowerValue
+       end
+   end,
+})
+
+-- Keep movement values when respawning
+LocalPlayer.CharacterAdded:Connect(function(char)
+    char:WaitForChild("Humanoid").WalkSpeed = WalkSpeedValue
+    char:WaitForChild("Humanoid").UseJumpPower = true
+    char:WaitForChild("Humanoid").JumpPower = JumpPowerValue
+end)
+
+-- Combat Features
+CombatTab:CreateToggle({
+   Name = "เปิดระบบล็อกหัว (Aimbot)",
+   CurrentValue = false,
+   Flag = "AimbotToggle",
+   Callback = function(Value)
+       AimbotEnabled = Value
+   end,
+})
+
+CombatTab:CreateToggle({
+   Name = "เปิดวงกลม FOV หน้าจอ",
+   CurrentValue = false,
+   Flag = "FOVToggle",
+   Callback = function(Value)
+       FOVVisible = Value
+   end,
+})
+
+CombatTab:CreateSlider({
+   Name = "ขนาดวงกลม FOV",
+   Range = {30, 500},
+   Increment = 5,
+   Suffix = "px",
+   CurrentValue = 100,
+   Flag = "FOVSlider",
+   Callback = function(Value)
+       FOVRadius = Value
+   end,
+})
+
+CombatTab:CreateToggle({
+   Name = "มองทะลุตัวผู้เล่น (Player ESP)",
+   CurrentValue = false,
+   Flag = "ESPToggle",
+   Callback = function(Value)
+       ESPEnabled = Value
+   end,
+})
+
+-- Event & Items Features
+EventTab:CreateButton({
+   Name = "เสกปืน / รัน Event (SpawnGalaxyBlock)",
+   Callback = function()
+       pcall(function()
+           ReplicatedStorage.SpawnGalaxyBlock.Event:FireServer()
+           Rayfield:Notify({
+               Title = "Event Fired!",
+               Content = "ส่งคำขอเสกไอเทมไปที่เซิร์ฟเวอร์แล้ว",
+               Duration = 3,
+               Image = 4483362458,
+           })
+       end)
+   end,
+})
+
+EventTab:CreateButton({
+   Name = "เช็คของในตัวผู้เล่นอื่น (Console / Log)",
+   Callback = function()
+       print("--- รายชื่อไอเทมของผู้เล่นทุกคน ---")
+       for _, p in pairs(Players:GetPlayers()) do
+           print("[" .. p.Name .. "] มีของดังนี้:")
+           if p:FindFirstChild("Backpack") then
+               for _, tool in pairs(p.Backpack:GetChildren()) do
+                   print("  - " .. tool.Name)
+               end
+           end
+           if p.Character then
+               for _, item in pairs(p.Character:GetChildren()) do
+                   if item:IsA("Tool") then
+                       print("  - [ถืออยู่] " .. item.Name)
+                   end
+               end
+           end
+       end
+       Rayfield:Notify({
+           Title = "Check Complete",
+           Content = "เปิด Console (กด F9) เพื่อดูรายการไอเทมในตัวทุกคน",
+           Duration = 4,
+           Image = 4483362458,
+       })
+   end,
+})
