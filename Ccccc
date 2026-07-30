@@ -1,0 +1,269 @@
+-- Rayfield Library Setup
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "ESP & Aimbot Hub",
+   LoadingTitle = "กำลังโหลดระบบ...",
+   LoadingSubtitle = "by Assistant",
+   ConfigurationSaving = {
+      Enabled = false,
+   },
+   Discord = {
+      Enabled = false,
+   },
+   KeySystem = false
+})
+
+local MainTab = Window:CreateTab("ฟังก์ชันหลัก", 4483362458)
+
+-- ==========================================
+-- 4. ระบบ Anti-Ban / Shield (กันแบนเบื้องต้น)
+-- ==========================================
+local AntiBanSection = MainTab:CreateSection("ระบบป้องกัน")
+
+local ProtectionEnabled = true
+MainTab:CreateToggle({
+   Name = "เปิดใช้งาน Anti-Bypass / Basic Protection",
+   CurrentValue = true,
+   Flag = "AntiBanFlag",
+   Callback = function(Value)
+       ProtectionEnabled = Value
+   end,
+})
+
+-- Hook Function เพื่อดักจับ Event "SpawnGalaxy" ไม่ให้ยิงรบกวนหรือตรวจจับได้
+local gmt = getrawmetatable(game)
+local oldNamecall = gmt.__namecall
+setreadonly(gmt, false)
+
+gmt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    if ProtectionEnabled and tostring(self) == "SpawnGalaxy" and method == "FireServer" then
+        -- ขัดขวางการส่งข้อมูลที่เป็นอันตราย / ป้องกันการสแปมแบน
+        return nil
+    end
+    return oldNamecall(self, ...)
+end)
+setreadonly(gmt, true)
+
+
+-- ==========================================
+-- Variables & Services
+-- ==========================================
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+
+-- Configuration States
+local AimbotEnabled = false
+local AimTargetPart = "Head" -- "Head" หรือ "HumanoidRootPart"
+local FOVVisible = false
+local FOVRadius = 100
+local SnapLinesEnabled = false
+local BoxESPEnabled = false
+
+-- FOV Circle
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(255, 0, 0)
+FOVCircle.Thickness = 1.5
+FOVCircle.Filled = false
+FOVCircle.Transparency = 1
+FOVCircle.Visible = false
+
+-- Storage for ESP Objects
+local ESPObjects = {}
+
+-- Helper: สร้าง ESP ให้ผู้เล่นแต่ละคน
+local function CreateESP(player)
+    if player == LocalPlayer then return end
+    
+    local box = Drawing.new("Square")
+    box.Color = Color3.fromRGB(255, 0, 0)
+    box.Thickness = 1.5
+    box.Filled = false
+    box.Visible = false
+
+    local line = Drawing.new("Line")
+    line.Color = Color3.fromRGB(255, 0, 0)
+    line.Thickness = 1.5
+    line.Visible = false
+
+    ESPObjects[player] = {Box = box, Line = line}
+end
+
+local function RemoveESP(player)
+    if ESPObjects[player] then
+        ESPObjects[player].Box:Remove()
+        ESPObjects[player].Line:Remove()
+        ESPObjects[player] = nil
+    end
+end
+
+for _, player in ipairs(Players:GetPlayers()) do
+    CreateESP(player)
+end
+
+Players.PlayerAdded:Connect(CreateESP)
+Players.PlayerRemoving:Connect(RemoveESP)
+
+
+-- ==========================================
+-- 1 & 2. Aimbot & FOV Circle Settings
+-- ==========================================
+local AimSection = MainTab:CreateSection("ระบบล็อกเป้า (Aimbot & FOV)")
+
+MainTab:CreateToggle({
+   Name = "เปิดระบบ Aimbot",
+   CurrentValue = false,
+   Flag = "AimbotToggle",
+   Callback = function(Value)
+       AimbotEnabled = Value
+   end,
+})
+
+MainTab:CreateDropdown({
+   Name = "ส่วนที่ต้องการล็อก",
+   Options = {"หัว (Head)", "ตัว (HumanoidRootPart)"},
+   CurrentOption = {"หัว (Head)"},
+   MultipleOptions = false,
+   Flag = "TargetPartDropdown",
+   Callback = function(Option)
+       if Option[1] == "หัว (Head)" then
+           AimTargetPart = "Head"
+       else
+           AimTargetPart = "HumanoidRootPart"
+       end
+   end,
+})
+
+MainTab:CreateToggle({
+   Name = "แสดงเป้าวงกลม (FOV Circle)",
+   CurrentValue = false,
+   Flag = "FOVToggle",
+   Callback = function(Value)
+       FOVVisible = Value
+   end,
+})
+
+MainTab:CreateSlider({
+   Name = "ปรับขนาดเป้าวงกลม",
+   Range = {30, 500},
+   Increment = 5,
+   Suffix = "px",
+   CurrentValue = 100,
+   Flag = "FOVSlider",
+   Callback = function(Value)
+       FOVRadius = Value
+   end,
+})
+
+
+-- ==========================================
+-- 3 & 5. ESP Settings (เส้นแดง & กรอบมองทะลุ)
+-- ==========================================
+local VisualSection = MainTab:CreateSection("ระบบมองทะลุ (ESP)")
+
+MainTab:CreateToggle({
+   Name = "แสดงกรอบสี่เหลี่ยม (Box ESP)",
+   CurrentValue = false,
+   Flag = "BoxESPToggle",
+   Callback = function(Value)
+       BoxESPEnabled = Value
+   end,
+})
+
+MainTab:CreateToggle({
+   Name = "แสดงเส้นสีแดง (Snaplines)",
+   CurrentValue = false,
+   Flag = "LinesToggle",
+   Callback = function(Value)
+       SnapLinesEnabled = Value
+   end,
+})
+
+
+-- ==========================================
+-- Main Render Loop (ทำงานทุกเฟรม)
+-- ==========================================
+local function GetClosestPlayer()
+    local closestPlayer = nil
+    local shortestDistance = FOVRadius
+
+    local mousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local part = player.Character:FindFirstChild(AimTargetPart)
+            if part then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                if onScreen then
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    if dist < shortestDistance then
+                        shortestDistance = dist
+                        closestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+RunService.RenderStepped:Connect(function()
+    -- 1. อัปเดตวงกลม FOV
+    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FOVCircle.Radius = FOVRadius
+    FOVCircle.Visible = FOVVisible
+
+    -- 2. ระบบ Aimbot
+    if AimbotEnabled then
+        local target = GetClosestPlayer()
+        if target and target.Character and target.Character:FindFirstChild(AimTargetPart) then
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Character[AimTargetPart].Position)
+        end
+    end
+
+    -- 3. ระบบ ESP (กรอบ + เส้น)
+    for player, objs in pairs(ESPObjects) do
+        local char = player.Character
+        if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
+            local hrp = char.HumanoidRootPart
+            local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+
+            if onScreen then
+                -- คำนวณขนาดกรอบแบบ Dynamic
+                local head = char:FindFirstChild("Head")
+                local headPos = head and Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0)) or pos
+                local legPos = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+                
+                local height = math.abs(headPos.Y - legPos.Y)
+                local width = height / 1.5
+
+                -- อัปเดต Box ESP
+                if BoxESPEnabled then
+                    objs.Box.Size = Vector2.new(width, height)
+                    objs.Box.Position = Vector2.new(pos.X - width / 2, pos.Y - height / 2)
+                    objs.Box.Visible = true
+                else
+                    objs.Box.Visible = false
+                end
+
+                -- อัปเดต Snapline ESP (ลากจากด้านล่างหน้าจอ)
+                if SnapLinesEnabled then
+                    objs.Line.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                    objs.Line.To = Vector2.new(pos.X, pos.Y)
+                    objs.Line.Visible = true
+                else
+                    objs.Line.Visible = false
+                end
+            else
+                objs.Box.Visible = false
+                objs.Line.Visible = false
+            end
+        else
+            objs.Box.Visible = false
+            objs.Line.Visible = false
+        end
+    end
+end)
