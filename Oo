@@ -1,0 +1,270 @@
+-- โหลด Rayfield Library
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Game Hub | Aimbot & ESP",
+   LoadingTitle = "กำลังโหลดระบบ...",
+   LoadingSubtitle = "by Assistant",
+   ConfigurationSaving = { Enabled = false },
+   KeySystem = false
+})
+
+-- บริการของ Roblox
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+--------------------------------------------------------------------------------
+-- 4. ระบบกันแบนพื้นฐาน (Anti-Ban / Anti-Kick Bypass)
+--------------------------------------------------------------------------------
+pcall(function()
+    local mt = getrawmetatable(game)
+    local oldNamecall = mt.__namecall
+    setreadonly(mt, false)
+    
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if method == "Kick" or method == "kick" then
+            return nil -- บล็อกการสั่ง Kick จากฝั่ง Client
+        end
+        return oldNamecall(self, ...)
+    end)
+    setreadonly(mt, true)
+end)
+
+--------------------------------------------------------------------------------
+-- ตัวแปรตั้งค่าระบบ (Settings)
+--------------------------------------------------------------------------------
+local Settings = {
+    -- Aimbot
+    AimbotEnabled = false,
+    AimPart = "Head", -- "Head" หรือ "HumanoidRootPart"
+    Smoothness = 0.2,
+    
+    -- FOV Circle
+    FOVEnabled = false,
+    FOVRadius = 100,
+    FOVColor = Color3.fromRGB(255, 0, 0),
+    
+    -- ESP
+    ESPTracer = false,
+    ESPBox = false
+}
+
+--------------------------------------------------------------------------------
+-- วาดวงกลม FOV สีแดงกลางหน้าจอ (Drawing Library)
+--------------------------------------------------------------------------------
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Visible = false
+FOVCircle.Thickness = 1.5
+FOVCircle.Color = Settings.FOVColor
+FOVCircle.Filled = false
+FOVCircle.NumSides = 64
+
+--------------------------------------------------------------------------------
+-- ฟังก์ชันช่วยเหลือ (Utility Functions)
+--------------------------------------------------------------------------------
+local function isEnemy(player)
+    if not player or player == LocalPlayer then return false end
+    -- เช็คระบบทีม (ถ้าเกมไม่มีทีมจะมองทุกคนเป็นศัตรู)
+    if LocalPlayer.Team and player.Team then
+        return LocalPlayer.Team ~= player.Team
+    end
+    return true
+end
+
+local function getClosestEnemy()
+    local closestPlayer = nil
+    local shortestDistance = Settings.FOVEnabled and Settings.FOVRadius or math.huge
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if isEnemy(player) and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local targetPart = player.Character:FindFirstChild(Settings.AimPart)
+            if targetPart then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                if onScreen then
+                    local mousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                    local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    
+                    if distance < shortestDistance then
+                        shortestDistance = distance
+                        closestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+--------------------------------------------------------------------------------
+-- UI Tab & Control
+--------------------------------------------------------------------------------
+local Tab = Window:CreateTab("หลัก", 4483362458)
+
+-- Section 1 & 2: ล็อกหัว/ล็อกตัว + เป้าวงกลม
+local AimbotSection = Tab:CreateSection("1. ระบบ Aimbot & FOV")
+
+Tab:CreateToggle({
+   Name = "เปิดระบบ Aimbot (ล็อกเป้า)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.AimbotEnabled = Value
+   end,
+})
+
+Tab:CreateDropdown({
+   Name = "ตำแหน่งล็อก",
+   Options = {"Head (หัว)", "HumanoidRootPart (ตัว)"},
+   CurrentOption = {"Head (หัว)"},
+   MultipleOptions = false,
+   Callback = function(Option)
+      if Option[1] == "Head (หัว)" then
+          Settings.AimPart = "Head"
+      else
+          Settings.AimPart = "HumanoidRootPart"
+      end
+   end,
+})
+
+Tab:CreateToggle({
+   Name = "2. แสดงเป้าวงกลมสีแดง (FOV)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.FOVEnabled = Value
+   end,
+})
+
+Tab:CreateSlider({
+   Name = "ปรับขนาดเป้าวงกลม (FOV Size)",
+   Range = {30, 500},
+   Increment = 5,
+   Suffix = "px",
+   CurrentValue = 100,
+   Callback = function(Value)
+      Settings.FOVRadius = Value
+   end,
+})
+
+-- Section 3 & 5: มองทะลุ + เส้นแดง
+local ESPSection = Tab:CreateSection("3 & 5. ระบบ ESP (มองทะลุ)")
+
+Tab:CreateToggle({
+   Name = "3. เส้นสีแดงเฉพาะฝ่ายตรงข้าม (Tracers)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.ESPTracer = Value
+   end,
+})
+
+Tab:CreateToggle({
+   Name = "5. กรอบสี่เหลี่ยมสีม่วงเฉพาะฝ่ายตรงข้าม (Boxes)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.ESPBox = Value
+   end,
+})
+
+--------------------------------------------------------------------------------
+-- Main Loop (อัปเดตระบบ Aimbot / FOV / ESP ทุกเฟรม)
+--------------------------------------------------------------------------------
+local ESPObjects = {}
+
+local function createESP(player)
+    if ESPObjects[player] then return end
+    
+    local tracer = Drawing.new("Line")
+    tracer.Visible = false
+    tracer.Color = Color3.fromRGB(255, 0, 0) -- เส้นสีแดง
+    tracer.Thickness = 1.5
+
+    local box = Drawing.new("Square")
+    box.Visible = false
+    box.Color = Color3.fromRGB(170, 0, 255) -- กรอบสีม่วง
+    box.Thickness = 1.5
+    box.Filled = false
+
+    ESPObjects[player] = {Tracer = tracer, Box = box}
+end
+
+local function removeESP(player)
+    if ESPObjects[player] then
+        ESPObjects[player].Tracer:Remove()
+        ESPObjects[player].Box:Remove()
+        ESPObjects[player] = nil
+    end
+end
+
+Players.PlayerRemoving:Connect(removeESP)
+
+RunService.RenderStepped:Connect(function()
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    
+    -- อัปเดต FOV Circle
+    FOVCircle.Visible = Settings.FOVEnabled
+    FOVCircle.Radius = Settings.FOVRadius
+    FOVCircle.Position = screenCenter
+
+    -- อัปเดต Aimbot
+    if Settings.AimbotEnabled and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then -- กดคลิกขวาเพื่อล็อก
+        local target = getClosestEnemy()
+        if target and target.Character and target.Character:FindFirstChild(Settings.AimPart) then
+            local targetPos = target.Character[Settings.AimPart].Position
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPos)
+        end
+    end
+
+    -- อัปเดต ESP (เส้น + กรอบ)
+    for _, player in ipairs(Players:GetPlayers()) do
+        if isEnemy(player) then
+            createESP(player)
+            local esp = ESPObjects[player]
+            
+            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+                local hrp = player.Character.HumanoidRootPart
+                local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+
+                if onScreen then
+                    -- วาดเส้น Tracers
+                    if Settings.ESPTracer then
+                        esp.Tracer.StartPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                        esp.Tracer.EndPos = Vector2.new(screenPos.X, screenPos.Y)
+                        esp.Tracer.Visible = true
+                    else
+                        esp.Tracer.Visible = false
+                    end
+
+                    -- วาดกรอบ Box สีม่วง
+                    if Settings.ESPBox then
+                        local head = player.Character:FindFirstChild("Head")
+                        local headPos = head and Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0)) or screenPos
+                        local legPos = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+                        
+                        local height = math.abs(headPos.Y - legPos.Y)
+                        local width = height / 1.5
+
+                        esp.Box.Size = Vector2.new(width, height)
+                        esp.Box.Position = Vector2.new(screenPos.X - width / 2, screenPos.Y - height / 2)
+                        esp.Box.Visible = true
+                    else
+                        esp.Box.Visible = false
+                    end
+                else
+                    esp.Tracer.Visible = false
+                    esp.Box.Visible = false
+                end
+            else
+                if esp then
+                    esp.Tracer.Visible = false
+                    esp.Box.Visible = false
+                end
+            end
+        else
+            removeESP(player)
+        end
+    end
+end)
