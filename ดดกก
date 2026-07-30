@@ -1,0 +1,100 @@
+-- Rayfield Library Setup
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Galaxy Hub | Aimbot Fix",
+   LoadingTitle = "Galaxy Hub Loading...",
+   LoadingSubtitle = "by Assistant",
+   ConfigurationSaving = { Enabled = false },
+   KeySystem = false
+})
+
+local MainTab = Window:CreateTab("Aimbot Fix", 4483362458)
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+
+local AimbotEnabled = false
+local AimPart = "Head"
+local FOVCircleEnabled = true
+local FOVRadius = 300 -- ปรับเริ่มต้นให้กว้างขึ้น
+local Smoothness = 1 -- ความไวในการล็อก (1 คือล็อกทันที)
+
+-- FOV Circle
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(255, 255, 0)
+FOVCircle.Thickness = 1.5
+FOVCircle.NumSides = 60
+FOVCircle.Filled = false
+FOVCircle.Visible = true
+
+-- Function Find Target (ค้นหาเป้าหมายที่ใกล้เป้าที่สุด)
+local function GetClosestTarget()
+    local target = nil
+    local shortestDistance = FOVRadius
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            -- ค้นหา Part ในตัวละคร (รองรับทั้ง Head, HumanoidRootPart หรือ Torso)
+            local part = player.Character:FindFirstChild(AimPart) or player.Character:FindFirstChild("HumanoidRootPart") or player.Character:FindFirstChild("Torso")
+            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+
+            -- เช็คว่ามีตัวละครและยังไม่ตาย
+            if part and (not humanoid or humanoid.Health > 0) then
+                local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                if onScreen then
+                    local distance = (Vector2.new(pos.X, pos.Y) - screenCenter).Magnitude
+                    if distance < shortestDistance then
+                        target = part
+                        shortestDistance = distance
+                    end
+                end
+            end
+        end
+    end
+    return target
+end
+
+-- Controls
+MainTab:CreateToggle({
+   Name = "Aimbot (เปิดการล็อกเป้า)",
+   CurrentValue = false,
+   Callback = function(Value) AimbotEnabled = Value end,
+})
+
+MainTab:CreateDropdown({
+   Name = "Aim Part (เลือกส่วนที่จะล็อก)",
+   Options = {"Head", "HumanoidRootPart", "Torso"},
+   CurrentOption = {"Head"},
+   Callback = function(Option) AimPart = Option[1] end,
+})
+
+MainTab:CreateSlider({
+   Name = "FOV Radius (ขนาดวงกลมล็อก)",
+   Range = {50, 800},
+   Increment = 10,
+   Suffix = "px",
+   CurrentValue = 300,
+   Callback = function(Value)
+      FOVRadius = Value
+      FOVCircle.Radius = Value
+   end,
+})
+
+-- Main Render Loop
+RunService.RenderStepped:Connect(function()
+    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FOVCircle.Radius = FOVRadius
+    FOVCircle.Visible = FOVCircleEnabled
+
+    if AimbotEnabled then
+        local targetPart = GetClosestTarget()
+        if targetPart then
+            -- สั่งล็อกเป้าหมายทันที
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPart.Position)
+        end
+    end
+end)
