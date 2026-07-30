@@ -1,0 +1,103 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- ตั้งค่าระบบ Lock-on
+local FOV_RADIUS = 150 -- รัศมีวงกลมล็อกเป้า (พิกเซล)
+local IS_LOCKED = false
+local CurrentTarget = nil
+local CurrentHighlight = nil
+
+-- ฟังก์ชั่นค้นหาศัตรูที่ใกล้จุดศูนย์กลางจอที่สุดในระยะ FOV
+local function GetClosestTargetInFOV()
+	local closestTarget = nil
+	local shortestDistance = FOV_RADIUS
+	local viewportCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+			local character = player.Character
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			
+			-- ตรวจสอบว่าศัตรูยังไม่ตาย
+			if humanoid and humanoid.Health > 0 then
+				local hrpPos, onScreen = Camera:WorldToViewportPoint(character.HumanoidRootPart.Position)
+				
+				if onScreen then
+					local screenPos = Vector2.new(hrpPos.X, hrpPos.Y)
+					local distance = (screenPos - viewportCenter).Magnitude
+					
+					if distance < shortestDistance then
+						shortestDistance = distance
+						closestTarget = character
+					end
+				end
+			end
+		end
+	end
+	
+	return closestTarget
+end
+
+-- ฟังก์ชั่นสร้าง/ลบ Highlight (เส้นขอบเรืองแสงสีม่วง)
+local function SetHighlight(character)
+	if CurrentHighlight then
+		CurrentHighlight:Destroy()
+		CurrentHighlight = nil
+	end
+
+	if character then
+		local highlight = Instance.new("Highlight")
+		highlight.Name = "TargetHighlight"
+		highlight.Adornee = character
+		highlight.FillColor = Color3.fromRGB(128, 0, 128) -- สีม่วง
+		highlight.FillTransparency = 0.5
+		highlight.OutlineColor = Color3.fromRGB(255, 0, 255)
+		highlight.OutlineTransparency = 0
+		highlight.Parent = character
+		CurrentHighlight = highlight
+	end
+end
+
+-- กดปุ่ม E เพื่อเปิด/ปิดการล็อกเป้า
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	
+	if input.KeyCode == Enum.KeyCode.E then
+		IS_LOCKED = not IS_LOCKED
+		
+		if IS_LOCKED then
+			CurrentTarget = GetClosestTargetInFOV()
+			if CurrentTarget then
+				SetHighlight(CurrentTarget)
+			else
+				IS_LOCKED = false
+			end
+		else
+			CurrentTarget = nil
+			SetHighlight(nil)
+		end
+	end
+end)
+
+-- หันกล้องไปทางเป้าหมายแบบเรียลไทม์
+RunService.RenderStepped:Connect(function()
+	if IS_LOCKED and CurrentTarget and CurrentTarget:FindFirstChild("Head") then
+		local humanoid = CurrentTarget:FindFirstChildOfClass("Humanoid")
+		
+		-- ถ้ารถหรือศัตรูตาย ให้ยกเลิกล็อก
+		if not humanoid or humanoid.Health <= 0 then
+			IS_LOCKED = false
+			CurrentTarget = nil
+			SetHighlight(nil)
+			return
+		end
+
+		-- หมุนกล้องไปยังตำแหน่งหัวของเป้าหมาย
+		local headPos = CurrentTarget.Head.Position
+		Camera.CFrame = CFrame.new(Camera.CFrame.Position, headPos)
+	end
+end)
