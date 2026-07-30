@@ -1,0 +1,31 @@
+-------------------------------------------------
+-- ระบบลดความเสี่ยงการโดนแบน (Anti-Detection Helpers)
+-------------------------------------------------
+local MemoryBypass = true
+
+-- 1. ซ่อน UI ไม่ให้ถูกตรวจจับผ่าน CoreGui
+local TargetParent = game:GetService("CoreGui")
+if gethui then
+    TargetParent = gethui() -- ซ่อน UI ในระดับที่มีความปลอดภัยสูงขึ้น
+end
+
+-- 2. ป้องกันการสแกนสคริปต์จาก Anti-Cheat ในเกม (Hooking Metatable)
+local RawMetatable = getrawmetatable(game)
+local OldNamecall = RawMetatable.__namecall
+setreadonly(RawMetatable, false)
+
+RawMetatable.__namecall = newcclosure(function(Self, ...)
+    local Method = getnamecallmethod()
+    
+    -- หากตัวเกมพยายามสแกนหาฟังก์ชั่นล็อกหัว หรือส่งค่า Kick ออกมา ให้บล็อกไว้
+    if not checkcaller() then
+        if Method == "Kick" or Method == "kick" then
+            return nil -- ป้องกันการโดนสั่ง Kick ออกจากเกมด้วยสคริปต์ Anti-Cheat
+        end
+    end
+    
+    return OldNamecall(Self, ...)
+end)
+
+setreadonly(RawMetatable, true)
+-------------------------------------------------
