@@ -1,0 +1,252 @@
+-- [[ Orion UI Library Load ]]
+local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/shlexware/Orion/main/source')))()
+local Window = OrionLib:MakeWindow({Name = "Universal Combat & Event Hub", HidePremium = false, SaveConfig = false, ConfigFolder = "OrionTest"})
+
+-- [[ Services & Variables ]]
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Toggles & Settings
+local Settings = {
+    TargetPart = "Head",
+    FOVSize = 120,
+    ShowFOV = false,
+    ESP_Box = false,
+    ESP_Tracer = false,
+    SilentAim = false,
+    AutoEvent = false,
+    TeamCheck = true
+}
+
+-- [[ FOV Circle Drawing ]]
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(255, 0, 0)
+FOVCircle.Thickness = 1.5
+FOVCircle.Filled = false
+FOVCircle.Transparency = 1
+FOVCircle.Visible = false
+
+-- [[ Enemy Detection Function ]]
+local function IsEnemy(player)
+    if not Settings.TeamCheck then return true end
+    if player.Team ~= nil and LocalPlayer.Team ~= nil then
+        return player.Team ~= LocalPlayer.Team
+    end
+    return true -- ถ้าเกมไม่มีระบบ Team ให้ถือว่าเป็นศัตรูทั้งหมด
+end
+
+local function GetClosestTarget()
+    local closestPlayer = nil
+    local shortestDistance = Settings.FOVSize
+    local mousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and IsEnemy(player) then
+            local char = player.Character
+            if char and char:FindFirstChild(Settings.TargetPart) and char:FindFirstChildOfClass("Humanoid") and char.Humanoid.Health > 0 then
+                local partPos, onScreen = Camera:WorldToViewportPoint(char[Settings.TargetPart].Position)
+                if onScreen then
+                    local distance = (Vector2.new(partPos.X, partPos.Y) - mousePos).Magnitude
+                    if distance < shortestDistance then
+                        shortestDistance = distance
+                        closestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- [[ Silent Aim / Bullet Redirect Hook ]]
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+    
+    if Settings.SilentAim and not checkcaller() and (method == "FireServer" or method == "InvokeServer") then
+        local target = GetClosestTarget()
+        if target and target.Character and target.Character:FindFirstChild(Settings.TargetPart) then
+            for i, arg in pairs(args) do
+                if typeof(arg) == "Vector3" then
+                    args[i] = target.Character[Settings.TargetPart].Position
+                elseif typeof(arg) == "CFrame" then
+                    args[i] = CFrame.new(target.Character[Settings.TargetPart].Position)
+                end
+            end
+        end
+    end
+    return oldNamecall(self, unpack(args))
+end)
+
+-- [[ UI Tabs & Controls ]]
+local CombatTab = Window:MakeTab({Name = "Combat", Icon = "rbxassetid://4483362458", PremiumOnly = false})
+local VisualTab = Window:MakeTab({Name = "Visuals (ESP)", Icon = "rbxassetid://4483362458", PremiumOnly = false})
+local EventTab = Window:MakeTab({Name = "Events", Icon = "rbxassetid://4483362458", PremiumOnly = false})
+
+-- Combat Tab
+CombatTab:AddDropdown({
+    Name = "Target Part (จุดล็อก)",
+    Default = "Head",
+    Options = {"Head", "HumanoidRootPart"},
+    Callback = function(Value)
+        Settings.TargetPart = Value
+    end    
+})
+
+CombatTab:AddToggle({
+    Name = "Show FOV Circle (เป้าแดงกลางจอ)",
+    Default = false,
+    Callback = function(Value)
+        Settings.ShowFOV = Value
+    end    
+})
+
+CombatTab:AddSlider({
+    Name = "FOV Size (ขนาดเป้า)",
+    Min = 30,
+    Max = 400,
+    Default = 120,
+    Color = Color3.fromRGB(255, 0, 0),
+    Increment = 5,
+    ValueName = "px",
+    Callback = function(Value)
+        Settings.FOVSize = Value
+    end    
+})
+
+CombatTab:AddToggle({
+    Name = "Bullet Redirect (กระสุนไปหาศัตรู)",
+    Default = false,
+    Callback = function(Value)
+        Settings.SilentAim = Value
+    end    
+})
+
+CombatTab:AddToggle({
+    Name = "Team Check (แยกฝั่ง)",
+    Default = true,
+    Callback = function(Value)
+        Settings.TeamCheck = Value
+    end    
+})
+
+-- Visuals Tab
+VisualTab:AddToggle({
+    Name = "ESP Box สีม่วง (เฉพาะศัตรู)",
+    Default = false,
+    Callback = function(Value)
+        Settings.ESP_Box = Value
+    end    
+})
+
+VisualTab:AddToggle({
+    Name = "Tracer Line สีแดง (เฉพาะศัตรู)",
+    Default = false,
+    Callback = function(Value)
+        Settings.ESP_Tracer = Value
+    end    
+})
+
+-- Event Tab
+EventTab:AddToggle({
+    Name = "Auto SpawnGalaxy Loop",
+    Default = false,
+    Callback = function(Value)
+        Settings.AutoEvent = Value
+    end    
+})
+
+-- [[ Main Render Loop ]]
+local Drawings = {}
+
+RunService.RenderStepped:Connect(function()
+    -- FOV Position Update
+    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FOVCircle.Radius = Settings.FOVSize
+    FOVCircle.Visible = Settings.ShowFOV
+
+    -- Event Trigger
+    if Settings.AutoEvent then
+        pcall(function()
+            if ReplicatedStorage:FindFirstChild("SpawnGalaxy") then
+                ReplicatedStorage.SpawnGalaxy:FireServer()
+            end
+        end)
+    end
+
+    -- ESP & Tracer Update
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = player.Character
+            local enemy = IsEnemy(player)
+
+            if enemy and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChildOfClass("Humanoid") and char.Humanoid.Health > 0 then
+                if not Drawings[player] then
+                    Drawings[player] = {
+                        Box = Drawing.new("Square"),
+                        Tracer = Drawing.new("Line")
+                    }
+                    -- Purple Box
+                    Drawings[player].Box.Color = Color3.fromRGB(180, 0, 255)
+                    Drawings[player].Box.Thickness = 1.5
+                    Drawings[player].Box.Filled = false
+
+                    -- Red Tracer
+                    Drawings[player].Tracer.Color = Color3.fromRGB(255, 0, 0)
+                    Drawings[player].Tracer.Thickness = 1
+                end
+
+                local hrp = char.HumanoidRootPart
+                local vector, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+
+                if onScreen then
+                    -- Render Purple Box
+                    if Settings.ESP_Box then
+                        local head = char:FindFirstChild("Head")
+                        local headPos = head and Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0)) or vector
+                        local height = math.abs(vector.Y - headPos.Y) * 2
+                        local width = height / 1.4
+
+                        Drawings[player].Box.Size = Vector2.new(width, height)
+                        Drawings[player].Box.Position = Vector2.new(vector.X - width / 2, vector.Y - height / 2)
+                        Drawings[player].Box.Visible = true
+                    else
+                        Drawings[player].Box.Visible = false
+                    end
+
+                    -- Render Red Tracer
+                    if Settings.ESP_Tracer then
+                        Drawings[player].Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                        Drawings[player].Tracer.To = Vector2.new(vector.X, vector.Y)
+                        Drawings[player].Tracer.Visible = true
+                    else
+                        Drawings[player].Tracer.Visible = false
+                    end
+                else
+                    Drawings[player].Box.Visible = false
+                    Drawings[player].Tracer.Visible = false
+                end
+            else
+                if Drawings[player] then
+                    Drawings[player].Box.Visible = false
+                    Drawings[player].Tracer.Visible = false
+                end
+            end
+        end
+    end
+end)
+
+-- Cleanup on Player Leave
+Players.PlayerRemoving:Connect(function(player)
+    if Drawings[player] then
+        if Drawings[player].Box then Drawings[player].Box:Remove() end
+        if Drawings[player].Tracer then Drawings[player].Tracer:Remove() end
+        Drawings[player] = nil
+    end
+end)
+
+OrionLib:Init()
