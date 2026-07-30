@@ -1,0 +1,249 @@
+-- Roblox LocalScript with Rayfield UI
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "ESP & Aimbot Hub",
+   LoadingTitle = "Loading Script...",
+   LoadingSubtitle = "Rayfield UI Interface",
+   ConfigurationSaving = {
+      Enabled = false,
+   },
+   KeySystem = false
+})
+
+-- Services & Variables
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- ReplicatedStorage Event Call Trigger
+local SpawnEvent = game:GetService("ReplicatedStorage"):FindFirstChild("SpawnGalaxyBlock")
+if SpawnEvent then
+    pcall(function()
+        SpawnEvent:FireServer()
+    end)
+end
+
+-- Feature Settings
+local Settings = {
+    AimbotEnabled = false,
+    AimPart = "Head", -- "Head" or "HumanoidRootPart"
+    FOVRadius = 100,
+    ShowFOV = false,
+    ESPEnabled = false,
+    TeamCheck = true
+}
+
+-- Anti-Ban (Client-side Bypass Placeholder)
+local function InitAntiBan()
+    local gmt = getrawmetatable(game)
+    if setreadonly then setreadonly(gmt, false) end
+    local oldNamecall = gmt.__namecall
+    
+    gmt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if not checkcaller() and (method == "Kick" or method == "kick") then
+            return nil
+        end
+        return oldNamecall(self, ...)
+    end)
+end
+pcall(InitAntiBan)
+
+-- Create FOV Circle
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(255, 0, 0)
+FOVCircle.Thickness = 1.5
+FOVCircle.NumSides = 60
+FOVCircle.Radius = Settings.FOVRadius
+FOVCircle.Filled = false
+FOVCircle.Visible = false
+
+-- Aimbot Target Acquisition
+local function GetClosestTarget()
+    local closestPlayer = nil
+    local shortestDistance = Settings.FOVRadius
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(Settings.AimPart) and player.Character:FindFirstChildOfClass("Humanoid") then
+            if player.Character.Humanoid.Health > 0 then
+                -- Team Check
+                if Settings.TeamCheck and player.Team ~= nil and player.Team == LocalPlayer.Team then
+                    continue
+                end
+
+                local targetPart = player.Character[Settings.AimPart]
+                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+
+                if onScreen then
+                    local mousePos = UserInputService:GetMouseLocation()
+                    local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+
+                    if distance < shortestDistance then
+                        shortestDistance = distance
+                        closestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- Render Loop for Aimbot & FOV
+RunService.RenderStepped:Connect(function()
+    -- FOV Circle Update
+    local mousePos = UserInputService:GetMouseLocation()
+    FOVCircle.Position = mousePos
+    FOVCircle.Radius = Settings.FOVRadius
+    FOVCircle.Visible = Settings.ShowFOV
+
+    -- Aimbot Loop
+    if Settings.AimbotEnabled and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+        local target = GetClosestTarget()
+        if target and target.Character and target.Character:FindFirstChild(Settings.AimPart) then
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Character[Settings.AimPart].Position)
+        end
+    end
+end)
+
+-- ESP System (Boxes & Tracers)
+local ESPCache = {}
+
+local function RemoveESP(player)
+    if ESPCache[player] then
+        if ESPCache[player].Box then ESPCache[player].Box:Remove() end
+        if ESPCache[player].Tracer then ESPCache[player].Tracer:Remove() end
+        ESPCache[player] = nil
+    end
+end
+
+local function CreateESP(player)
+    if player == LocalPlayer then return end
+
+    local Box = Drawing.new("Square")
+    Box.Color = Color3.fromRGB(255, 0, 0)
+    Box.Thickness = 1.5
+    Box.Filled = false
+    Box.Visible = false
+
+    local Tracer = Drawing.new("Line")
+    Tracer.Color = Color3.fromRGB(255, 0, 0)
+    Tracer.Thickness = 1.5
+    Tracer.Visible = false
+
+    ESPCache[player] = {Box = Box, Tracer = Tracer}
+end
+
+for _, p in pairs(Players:GetPlayers()) do CreateESP(p) end
+Players.PlayerAdded:Connect(CreateESP)
+Players.PlayerRemoving:Connect(RemoveESP)
+
+RunService.RenderStepped:Connect(function()
+    for player, esp in pairs(ESPCache) do
+        if Settings.ESPEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChildOfClass("Humanoid") then
+            local isEnemy = not Settings.TeamCheck or (player.Team == nil or player.Team ~= LocalPlayer.Team)
+            local humanoid = player.Character.Humanoid
+
+            if isEnemy and humanoid.Health > 0 then
+                local hrp = player.Character.HumanoidRootPart
+                local vector, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+
+                if onScreen then
+                    -- Calc Box Dimensions
+                    local head = player.Character:FindFirstChild("Head")
+                    local headPos = head and Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0)) or vector
+                    local legPos = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+
+                    local height = math.abs(headPos.Y - legPos.Y)
+                    local width = height / 2.2
+
+                    esp.Box.Size = Vector2.new(width, height)
+                    esp.Box.Position = Vector2.new(vector.X - width / 2, vector.Y - height / 2)
+                    esp.Box.Visible = true
+
+                    -- Tracer Line (From Bottom Screen to Enemy)
+                    esp.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                    esp.Tracer.To = Vector2.new(vector.X, vector.Y)
+                    esp.Tracer.Visible = true
+                else
+                    esp.Box.Visible = false
+                    esp.Tracer.Visible = false
+                end
+            else
+                esp.Box.Visible = false
+                esp.Tracer.Visible = false
+            end
+        else
+            esp.Box.Visible = false
+            esp.Tracer.Visible = false
+        end
+    end
+end)
+
+-- UI Setup (Rayfield Tabs & Controls)
+local MainTab = Window:CreateTab("Main Settings", 4483362458)
+
+MainTab:CreateToggle({
+   Name = "เปิดระบบ Aimbot (คลิกขวาค้าง)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.AimbotEnabled = Value
+   end,
+})
+
+MainTab:CreateDropdown({
+   Name = "ตำแหน่งล็อก Target",
+   Options = {"Head", "HumanoidRootPart"},
+   CurrentOption = {"Head"},
+   MultipleOptions = false,
+   Callback = function(Option)
+      Settings.AimPart = Option[1]
+   end,
+})
+
+MainTab:CreateToggle({
+   Name = "แสดงเป้าวงกลม (FOV Circle)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.ShowFOV = Value
+   end,
+})
+
+MainTab:CreateSlider({
+   Name = "ขนาดเป้าวงกลม FOV",
+   Range = {30, 500},
+   Increment = 5,
+   Suffix = "px",
+   CurrentValue = 100,
+   Callback = function(Value)
+      Settings.FOVRadius = Value
+   end,
+})
+
+local VisualTab = Window:CreateTab("ESP Systems", 4483362458)
+
+VisualTab:CreateToggle({
+   Name = "เปิด ESP กรอบสี่เหลี่ยม + เส้นชี้เป้า",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.ESPEnabled = Value
+   end,
+})
+
+VisualTab:CreateToggle({
+   Name = "แยกฝ่าย (แสดงเฉพาะฝ่ายตรงข้าม)",
+   CurrentValue = true,
+   Callback = function(Value)
+      Settings.TeamCheck = Value
+   end,
+})
+
+Rayfield:Notify({
+   Title = "Loaded Successfully",
+   Content = "ระบบเปิดใช้งานแล้วพร้อมกับ Event Trigger!",
+   Duration = 5,
+   Image = 4483362458,
+})
