@@ -1,0 +1,280 @@
+-- เซฟโซนป้องกันสคริปต์ล้มเหลวขณะรัน
+local success, err = pcall(function()
+
+    -- 1. Load Rayfield UI Library
+    local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+    local Window = Rayfield:CreateWindow({
+       Name = "Galaxy Hub | Fixed & Full Version",
+       LoadingTitle = "Galaxy Hub Loading...",
+       LoadingSubtitle = "by Assistant",
+       ConfigurationSaving = { Enabled = false },
+       KeySystem = false
+    })
+
+    local MainTab = Window:CreateTab("Main Features", 4483362458)
+
+    -- Variables
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+    local Camera = workspace.CurrentCamera
+    local RunService = game:GetService("RunService")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+    local AimbotEnabled = false
+    local AimPart = "Head"
+    local FOVCircleEnabled = false
+    local FOVRadius = 250
+    local TracersEnabled = false
+    local ESPEnabled = false
+    local SilentAimEnabled = false
+    local WallbangEnabled = false
+    local SelectedGunName = ""
+
+    -- FOV Circle
+    local FOVCircle = nil
+    pcall(function()
+        if Drawing then
+            FOVCircle = Drawing.new("Circle")
+            FOVCircle.Color = Color3.fromRGB(255, 255, 0)
+            FOVCircle.Thickness = 1.5
+            FOVCircle.NumSides = 60
+            FOVCircle.Filled = false
+            FOVCircle.Visible = false
+        end
+    end)
+
+    -- Function: Get Target
+    local function GetClosestTarget()
+        local target = nil
+        local shortestDistance = FOVRadius
+        local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local part = player.Character:FindFirstChild(AimPart) or player.Character:FindFirstChild("HumanoidRootPart")
+                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+
+                if part and (not humanoid or humanoid.Health > 0) then
+                    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                    if WallbangEnabled or onScreen then
+                        local distance = (Vector2.new(pos.X, pos.Y) - screenCenter).Magnitude
+                        if distance < shortestDistance then
+                            target = player
+                            shortestDistance = distance
+                        end
+                    end
+                end
+            end
+        end
+        return target
+    end
+
+    -- ================= UI Controls ================= --
+
+    MainTab:CreateToggle({
+       Name = "1. Aimbot (ล็อกเป้า)",
+       CurrentValue = false,
+       Callback = function(Value) AimbotEnabled = Value end,
+    })
+
+    MainTab:CreateDropdown({
+       Name = "1.1 Aim Part (ส่วนที่จะล็อก)",
+       Options = {"Head", "HumanoidRootPart"},
+       CurrentOption = {"Head"},
+       Callback = function(Option) 
+          if type(Option) == "table" then AimPart = Option[1] else AimPart = Option end 
+       end,
+    })
+
+    MainTab:CreateToggle({
+       Name = "2. Show FOV (เป้าวงกลม)",
+       CurrentValue = false,
+       Callback = function(Value) FOVCircleEnabled = Value end,
+    })
+
+    MainTab:CreateSlider({
+       Name = "2.1 FOV Radius (ขนาดเป้า)",
+       Range = {50, 800},
+       Increment = 10,
+       Suffix = "px",
+       CurrentValue = 250,
+       Callback = function(Value)
+          FOVRadius = Value
+          if FOVCircle then FOVCircle.Radius = Value end
+       end,
+    })
+
+    MainTab:CreateToggle({
+       Name = "3. Enemy Tracers (เส้นชี้เป้า)",
+       CurrentValue = false,
+       Callback = function(Value) TracersEnabled = Value end,
+    })
+
+    MainTab:CreateToggle({
+       Name = "5. Enemy Box ESP (กรอบมองทะลุ)",
+       CurrentValue = false,
+       Callback = function(Value) ESPEnabled = Value end,
+    })
+
+    MainTab:CreateToggle({
+       Name = "6. Silent Aim / Bullet Homing",
+       CurrentValue = false,
+       Callback = function(Value) SilentAimEnabled = Value end,
+    })
+
+    MainTab:CreateToggle({
+       Name = "7. Wallbang (ปิดการชนสิ่งกีดขวาง)",
+       CurrentValue = false,
+       Callback = function(Value) 
+          WallbangEnabled = Value 
+          task.spawn(function()
+              for _, obj in pairs(workspace:GetDescendants()) do
+                  if obj:IsA("BasePart") and not obj:IsDescendantOf(LocalPlayer.Character) then
+                      pcall(function()
+                          if WallbangEnabled then
+                              obj.CanCollide = false
+                          else
+                              obj.CanCollide = true
+                          end
+                      end)
+                  end
+              end
+          end)
+       end,
+    })
+
+    -- 🔫 ฟังก์ชันที่ 8: เสกปืนระบุชื่อ
+    MainTab:CreateInput({
+       Name = "8.1 ชื่อปืนที่ต้องการเสก",
+       PlaceholderText = "พิมพ์ชื่อ เช่น AK47, Rifle, Pistol",
+       RemoveTextOnFocusLost = false,
+       Callback = function(Text)
+          SelectedGunName = Text
+       end,
+    })
+
+    MainTab:CreateButton({
+       Name = "8.2 กดเพื่อเสกปืน",
+       Callback = function()
+          if SelectedGunName == "" then
+             Rayfield:Notify({ Title = "แจ้งเตือน", Content = "กรุณากรอกชื่อปืนในช่อง 8.1 ก่อนครับ", Duration = 3 })
+             return
+          end
+
+          local backpack = LocalPlayer:FindFirstChild("Backpack")
+          local count = 0
+          if not backpack then return end
+
+          for _, obj in pairs(game:GetDescendants()) do
+             if obj:IsA("Tool") and string.find(string.lower(obj.Name), string.lower(SelectedGunName)) then
+                pcall(function()
+                   local newTool = obj:Clone()
+                   newTool.Parent = backpack
+                   count = count + 1
+                end)
+             end
+          end
+
+          if count > 0 then
+             Rayfield:Notify({ Title = "สำเสร็จ!", Content = "ดึงปืน " .. SelectedGunName .. " เข้าตัวแล้ว " .. count .. " ชิ้น", Duration = 4 })
+          else
+             Rayfield:Notify({ Title = "ไม่พบไอเทม", Content = "ไม่พบปืนชื่อ " .. SelectedGunName .. " ในเกมนี้", Duration = 4 })
+          end
+       end,
+    })
+
+    -- Loop ระบบวาดและคำนวณหน้าจอ
+    local Tracers = {}
+
+    RunService.RenderStepped:Connect(function()
+        if FOVCircle then
+            FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+            FOVCircle.Radius = FOVRadius
+            FOVCircle.Visible = FOVCircleEnabled
+        end
+
+        local targetPlayer = GetClosestTarget()
+
+        if AimbotEnabled and targetPlayer and targetPlayer.Character then
+            local targetPart = targetPlayer.Character:FindFirstChild(AimPart)
+            if targetPart then
+                Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPart.Position)
+            end
+        end
+
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    -- ESP
+                    local highlight = player.Character:FindFirstChild("ESPHighlight")
+                    if ESPEnabled then
+                        if not highlight then
+                            highlight = Instance.new("Highlight")
+                            highlight.Name = "ESPHighlight"
+                            highlight.FillColor = Color3.fromRGB(128, 0, 128)
+                            highlight.Parent = player.Character
+                        end
+                    else
+                        if highlight then highlight:Destroy() end
+                    end
+
+                    -- Tracers
+                    if TracersEnabled and Drawing then
+                        if not Tracers[player] then
+                            pcall(function()
+                                Tracers[player] = Drawing.new("Line")
+                                Tracers[player].Color = Color3.fromRGB(255, 0, 0)
+                                Tracers[player].Thickness = 1.5
+                            end)
+                        end
+                        if Tracers[player] then
+                            local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+                            if onScreen then
+                                Tracers[player].From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                                Tracers[player].To = Vector2.new(pos.X, pos.Y)
+                                Tracers[player].Visible = true
+                            else
+                                Tracers[player].Visible = false
+                            end
+                        end
+                    else
+                        if Tracers[player] then Tracers[player].Visible = false end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Silent Aim Loop
+    task.spawn(function()
+        while task.wait(0.1) do
+            if SilentAimEnabled then
+                local targetPlayer = GetClosestTarget()
+                if targetPlayer and targetPlayer.Character then
+                    local targetPart = targetPlayer.Character:FindFirstChild(AimPart)
+                    if targetPart then
+                        pcall(function()
+                            if ReplicatedStorage:FindFirstChild("SpawnGalaxyBlock") then
+                                ReplicatedStorage.SpawnGalaxyBlock.Event:FireServer(targetPart.Position)
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+    end)
+
+    Rayfield:Notify({
+       Title = "Galaxy Hub Ready",
+       Content = "เมนูทำงานเรียบร้อยแล้ว!",
+       Duration = 4,
+    })
+
+end)
+
+-- ถ้าโค้ดมีปัญหา จะแสดงข้อความแจ้งเตือนแทนการค้าง
+if not success then
+    warn("Script Failed to Run: " .. tostring(err))
+end
