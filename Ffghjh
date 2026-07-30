@@ -1,0 +1,262 @@
+-- โหลด Rayfield UI Library
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Rayfield Hub | Aimbot + FOV & ESP",
+   LoadingTitle = "กำลังโหลดสคริปต์...",
+   LoadingSubtitle = "by Assistant",
+   ConfigurationSaving = {
+      Enabled = false,
+   },
+   KeySystem = false
+})
+
+-- บริการต่างๆ ของ Roblox
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- ตัวแปรระบบ Aimbot & FOV
+local AimbotEnabled = false
+local AimKey = Enum.UserInputType.MouseButton2 -- คลิกขวาเพื่อล็อก
+local FOVEnabled = false
+local FOVRadius = 150 -- ขนาดวงกลมเริ่มต้น (พิกเซล)
+
+-- สร้างวงกลม FOV ด้วย Drawing Library
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 2
+FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+FOVCircle.Filled = false
+FOVCircle.Transparency = 1
+FOVCircle.Visible = false
+
+-- ตัวแปรอื่นๆ
+local ESPEnabled = false
+local ItemESPEnabled = false
+local HighJumpEnabled = false
+local JumpHeightValue = 100
+
+-- สร้าง Tab เมนู
+local MainTab = Window:CreateTab("ฟังก์ชั่นหลัก", 4483362458)
+local LocalTab = Window:CreateTab("ผู้เล่น", 4483362458)
+
+-------------------------------------------------
+-- 1. ล็อกหัว + วงกลมจำกัดพื้นที่ (Aimbot & FOV)
+-------------------------------------------------
+MainTab:CreateToggle({
+   Name = "เปิดระบบล็อกหัว (Aimbot - กดคลิกขวาค้าง)",
+   CurrentValue = false,
+   Callback = function(Value)
+      AimbotEnabled = Value
+   end,
+})
+
+MainTab:CreateToggle({
+   Name = "แสดงวงกลมล็อก (Draw FOV Circle)",
+   CurrentValue = false,
+   Callback = function(Value)
+      FOVEnabled = Value
+   end,
+})
+
+MainTab:CreateSlider({
+   Name = "ขนาดวงกลมล็อก (FOV Radius)",
+   Range = {50, 500},
+   Increment = 5,
+   Suffix = "px",
+   CurrentValue = 150,
+   Callback = function(Value)
+      FOVRadius = Value
+   end,
+})
+
+-- อัปเดตตำแหน่งและความกว้างของวงกลม FOV
+RunService.RenderStepped:Connect(function()
+   FOVCircle.Visible = FOVEnabled
+   FOVCircle.Radius = FOVRadius
+   FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+end)
+
+-- ฟังก์ชั่นค้นหาเป้าหมายที่ "อยู่ในวงกลม" และ "ใกล้จุดศูนย์กลางที่สุด"
+local function GetClosestPlayerInFOV()
+   local Target = nil
+   local ShortestDistance = FOVRadius -- จะเล็งเฉพาะคนที่อยู่ในรัศมี FOV เท่านั้น
+   local ScreenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+   for _, v in pairs(Players:GetPlayers()) do
+      if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("Head") and v.Character:FindFirstChildOfClass("Humanoid") then
+         if v.Character.Humanoid.Health > 0 then
+            local Pos, OnScreen = Camera:WorldToViewportPoint(v.Character.Head.Position)
+            if OnScreen then
+               local TargetPos = Vector2.new(Pos.X, Pos.Y)
+               local Distance = (TargetPos - ScreenCenter).Magnitude
+               
+               -- ตรวจสอบว่าเป้าหมายอยู่ในวงกลมไหม
+               if Distance < ShortestDistance then
+                  ShortestDistance = Distance
+                  Target = v
+               end
+            end
+         end
+      end
+   end
+   return Target
+end
+
+-- สั่งล็อกหัว
+RunService.RenderStepped:Connect(function()
+   if AimbotEnabled and UserInputService:IsMouseButtonPressed(AimKey) then
+      local Target = GetClosestPlayerInFOV()
+      if Target and Target.Character and Target.Character:FindFirstChild("Head") then
+         Camera.CFrame = CFrame.new(Camera.CFrame.Position, Target.Character.Head.Position)
+      end
+   end
+end)
+
+-------------------------------------------------
+-- 2. มองเห็นทะลุ (ESP Box/Highlight)
+-------------------------------------------------
+MainTab:CreateToggle({
+   Name = "มองทะลุผู้เล่น (Player ESP)",
+   CurrentValue = false,
+   Callback = function(Value)
+      ESPEnabled = Value
+   end,
+})
+
+RunService.RenderStepped:Connect(function()
+   for _, player in pairs(Players:GetPlayers()) do
+      if player ~= LocalPlayer and player.Character then
+         local Highlight = player.Character:FindFirstChild("ESPHighlight")
+         if ESPEnabled then
+            if not Highlight then
+               Highlight = Instance.new("Highlight")
+               Highlight.Name = "ESPHighlight"
+               Highlight.FillColor = Color3.fromRGB(255, 0, 0)
+               Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+               Highlight.FillTransparency = 0.5
+               Highlight.Parent = player.Character
+            end
+         else
+            if Highlight then
+               Highlight:Destroy()
+            end
+         end
+      end
+   end
+end)
+
+-------------------------------------------------
+-- 3. มองเห็นของที่ผู้เล่นกำลังใช้อยู่ (Item ESP)
+-------------------------------------------------
+MainTab:CreateToggle({
+   Name = "มองของที่ผู้เล่นถือ (Tool ESP)",
+   CurrentValue = false,
+   Callback = function(Value)
+      ItemESPEnabled = Value
+   end,
+})
+
+RunService.RenderStepped:Connect(function()
+   for _, player in pairs(Players:GetPlayers()) do
+      if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+         local Billboard = player.Character.Head:FindFirstChild("ItemESP")
+         
+         if ItemESPEnabled then
+            local Tool = player.Character:FindFirstChildOfClass("Tool")
+            local ToolName = Tool and Tool.Name or "ไม่ได้ถือของ"
+
+            if not Billboard then
+               Billboard = Instance.new("BillboardGui")
+               Billboard.Name = "ItemESP"
+               Billboard.AlwaysOnTop = true
+               Billboard.Size = UDim2.new(0, 100, 0, 30)
+               Billboard.StudsOffset = Vector3.new(0, 2, 0)
+
+               local TextLabel = Instance.new("TextLabel")
+               TextLabel.Name = "Label"
+               TextLabel.Size = UDim2.new(1, 0, 1, 0)
+               TextLabel.BackgroundTransparency = 1
+               TextLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+               TextLabel.TextStrokeTransparency = 0
+               TextLabel.TextSize = 14
+               TextLabel.Parent = Billboard
+
+               Billboard.Parent = player.Character.Head
+            end
+
+            Billboard.Label.Text = "[" .. player.Name .. "]\nถือ: " .. ToolName
+         else
+            if Billboard then
+               Billboard:Destroy()
+            end
+         end
+      end
+   end
+end)
+
+-------------------------------------------------
+-- 4. กระโดดสูง (Jump Power)
+-------------------------------------------------
+LocalTab:CreateToggle({
+   Name = "เปิดระบบกระโดดสูง",
+   CurrentValue = false,
+   Callback = function(Value)
+      HighJumpEnabled = Value
+      if not Value and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+         LocalPlayer.Character.Humanoid.JumpPower = 50
+      end
+   end,
+})
+
+LocalTab:CreateSlider({
+   Name = "ความสูงการกระโดด",
+   Range = {50, 300},
+   Increment = 5,
+   Suffix = "Power",
+   CurrentValue = 100,
+   Callback = function(Value)
+      JumpHeightValue = Value
+   end,
+})
+
+RunService.RenderStepped:Connect(function()
+   if HighJumpEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+      LocalPlayer.Character.Humanoid.UseJumpPower = true
+      LocalPlayer.Character.Humanoid.JumpPower = JumpHeightValue
+   end
+end)
+
+-------------------------------------------------
+-- ปุ่มสำหรับยิง Event: SpawnGalaxy Block
+-------------------------------------------------
+MainTab:CreateButton({
+   Name = "ยิง Event SpawnGalaxy Block",
+   Callback = function()
+      local ReplicatedStorage = game:GetService("ReplicatedStorage")
+      local TargetEvent = ReplicatedStorage:FindFirstChild("SpawnGalaxy Block") or ReplicatedStorage:FindFirstChild("SpawnGalaxyBlock")
+      
+      if TargetEvent then
+         TargetEvent:FireServer()
+         Rayfield:Notify({
+            Title = "สำเร็จ!",
+            Content = "ส่งสัญญาณไปยัง SpawnGalaxy Block แล้ว",
+            Duration = 3,
+         })
+      else
+         Rayfield:Notify({
+            Title = "ผิดพลาด!",
+            Content = "ไม่พบ SpawnGalaxy Block ใน ReplicatedStorage",
+            Duration = 3,
+         })
+      end
+   end,
+})
+
+Rayfield:Notify({
+   Title = "สคริปต์พร้อมใช้งาน!",
+   Content = "ปรับขนาดวงกลมล็อกได้ในแถบ FOV Radius",
+   Duration = 5,
+})
