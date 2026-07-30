@@ -1,0 +1,216 @@
+-- Rayfield Library Setup
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Galaxy Hub | All-in-One",
+   LoadingTitle = "Galaxy Hub Loading...",
+   LoadingSubtitle = "by Assistant",
+   ConfigurationSaving = { Enabled = false },
+   KeySystem = false
+})
+
+local MainTab = Window:CreateTab("Main Features", 4483362458)
+
+-- Services & Variables
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local AimbotEnabled = false
+local AimPart = "Head"
+local FOVCircleEnabled = true
+local FOVRadius = 250
+
+local TracersEnabled = false
+local ESPEnabled = false
+local SilentAimEnabled = false
+
+-- FOV Circle (เป้าเหลืองกลางจอ)
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(255, 255, 0)
+FOVCircle.Thickness = 1.5
+FOVCircle.NumSides = 60
+FOVCircle.Filled = false
+FOVCircle.Visible = true
+
+-- Function: ดึง Part ของเป้าหมาย (รองรับทุกโครงสร้างตัวละคร)
+local function GetTargetPart(character)
+    if not character then return nil end
+    return character:FindFirstChild(AimPart) 
+        or character:FindFirstChild("Head") 
+        or character:FindFirstChild("HumanoidRootPart") 
+        or character:FindFirstChild("Torso") 
+        or character:FindFirstChild("UpperTorso")
+end
+
+-- Function: ค้นหาศัตรูที่ใกล้เป้ากลางจอมากที่สุด
+local function GetClosestTarget()
+    local targetPlayer = nil
+    local targetPart = nil
+    local shortestDistance = FOVRadius
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local part = GetTargetPart(player.Character)
+            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+
+            -- เช็คว่ามีตัวละครและยังไม่ตาย
+            if part and (not humanoid or humanoid.Health > 0) then
+                local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                if onScreen then
+                    local distance = (Vector2.new(pos.X, pos.Y) - screenCenter).Magnitude
+                    if distance < shortestDistance then
+                        targetPlayer = player
+                        targetPart = part
+                        shortestDistance = distance
+                    end
+                end
+            end
+        end
+    end
+    return targetPlayer, targetPart
+end
+
+-- UI Controls
+
+-- 1. Aimbot
+MainTab:CreateToggle({
+   Name = "1. Aimbot (ล็อกเป้า)",
+   CurrentValue = false,
+   Callback = function(Value) AimbotEnabled = Value end,
+})
+
+MainTab:CreateDropdown({
+   Name = "จุดที่ล็อก",
+   Options = {"Head", "HumanoidRootPart", "Torso"},
+   CurrentOption = {"Head"},
+   Callback = function(Option) AimPart = Option[1] end,
+})
+
+-- 2. FOV
+MainTab:CreateToggle({
+   Name = "2. Show FOV (เป้าเหลือง)",
+   CurrentValue = true,
+   Callback = function(Value) FOVCircleEnabled = Value end,
+})
+
+MainTab:CreateSlider({
+   Name = "ขนาดเป้าเหลือง",
+   Range = {50, 600},
+   Increment = 10,
+   Suffix = "px",
+   CurrentValue = 250,
+   Callback = function(Value)
+      FOVRadius = Value
+      FOVCircle.Radius = Value
+   end,
+})
+
+-- 3. Tracers
+MainTab:CreateToggle({
+   Name = "3. Tracers (เส้นสีแดง)",
+   CurrentValue = false,
+   Callback = function(Value) TracersEnabled = Value end,
+})
+
+-- 5. ESP Box
+MainTab:CreateToggle({
+   Name = "5. ESP Box (กรอบสีม่วง)",
+   CurrentValue = false,
+   Callback = function(Value) ESPEnabled = Value end,
+})
+
+-- 6. Silent Aim
+MainTab:CreateToggle({
+   Name = "6. Silent Aim (กระสุนไปหาศัตรู)",
+   CurrentValue = false,
+   Callback = function(Value) SilentAimEnabled = Value end,
+})
+
+-- Storage สำหรับเก็บเส้น Tracers
+local TracersList = {}
+
+-- Main Render Loop
+RunService.RenderStepped:Connect(function()
+    -- อัปเดตเป้าเหลืองกลางจอ
+    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FOVCircle.Visible = FOVCircleEnabled
+
+    local targetPlayer, targetPart = GetClosestTarget()
+
+    -- 1. Aimbot Logic
+    if AimbotEnabled and targetPart then
+        Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPart.Position)
+    end
+
+    -- Loop จัดการ ESP และ Tracers สำหรับทุกคน
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local rootPart = GetTargetPart(player.Character)
+            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+
+            if rootPart and (not humanoid or humanoid.Health > 0) then
+                
+                -- [5] ESP Highlight (กรอบสีม่วง)
+                local highlight = player.Character:FindFirstChild("ESPHighlight")
+                if ESPEnabled then
+                    if not highlight then
+                        highlight = Instance.new("Highlight")
+                        highlight.Name = "ESPHighlight"
+                        highlight.FillColor = Color3.fromRGB(130, 0, 200) -- สีม่วง
+                        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                        highlight.FillTransparency = 0.4
+                        highlight.Parent = player.Character
+                    end
+                else
+                    if highlight then highlight:Destroy() end
+                end
+
+                -- [3] Tracers (เส้นสีแดง)
+                if TracersEnabled then
+                    if not TracersList[player] then
+                        TracersList[player] = Drawing.new("Line")
+                        TracersList[player].Color = Color3.fromRGB(255, 0, 0) -- สีแดง
+                        TracersList[player].Thickness = 1.5
+                    end
+
+                    local pos, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
+                    if onScreen then
+                        TracersList[player].From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y) -- ล่างจอ
+                        TracersList[player].To = Vector2.new(pos.X, pos.Y)
+                        TracersList[player].Visible = true
+                    else
+                        TracersList[player].Visible = false
+                    end
+                else
+                    if TracersList[player] then TracersList[player].Visible = false end
+                end
+
+            else
+                -- ลบออกถ้าผู้เล่นตายหรือออกจากระยะ
+                if TracersList[player] then TracersList[player].Visible = false end
+                if player.Character:FindFirstChild("ESPHighlight") then
+                    player.Character.ESPHighlight:Destroy()
+                end
+            end
+        end
+    end
+end)
+
+-- [6] Silent Aim Loop (กระสุนไปหาศัตรู)
+task.spawn(function()
+    while task.wait(0.05) do
+        if SilentAimEnabled then
+            local targetPlayer, targetPart = GetClosestTarget()
+            if targetPart then
+                pcall(function()
+                    -- ยิง Event ไปหาตำแหน่งเป้าหมาย
+                    ReplicatedStorage.SpawnGalaxyBlock.Event:FireServer(targetPart.Position)
+                end)
+            end
+        end
+    end
+end)
