@@ -1,0 +1,232 @@
+-- Rayfield Library Setup
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Galaxy Hub | Combat Script",
+   LoadingTitle = "Galaxy Hub Loading...",
+   LoadingSubtitle = "by Assistant",
+   ConfigurationSaving = {
+      Enabled = false
+   },
+   KeySystem = false
+})
+
+local MainTab = Window:CreateTab("Main Features", 4483362458)
+
+-- Variables
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local AimbotEnabled = false
+local AimPart = "Head"
+local FOVCircleEnabled = false
+local FOVRadius = 100
+local TracersEnabled = false
+local ESPEnabled = false
+local SilentAimEnabled = false
+local AntiBanEnabled = true
+
+-- Anti-Ban (Basic Bypass)
+if AntiBanEnabled then
+    local gmt = getrawmetatable(game)
+    setreadonly(gmt, false)
+    local oldNamecall = gmt.__namecall
+    gmt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if method == "Kick" or method == "Ban" then
+            return nil
+        end
+        return oldNamecall(self, ...)
+    end)
+    setreadonly(gmt, true)
+end
+
+-- FOV Drawing (ล็อกตำแหน่งกลางจอ)
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(255, 255, 0) -- สีเหลือง
+FOVCircle.Thickness = 1.5
+FOVCircle.NumSides = 60
+FOVCircle.Filled = false
+FOVCircle.Visible = false
+
+-- Function: Get Closest Enemy from Screen Center
+local function GetClosestEnemy()
+    local target = nil
+    local shortestDistance = FOVRadius
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Team ~= LocalPlayer.Team and player.Character and player.Character:FindFirstChild(AimPart) and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local pos, onScreen = Camera:WorldToViewportPoint(player.Character[AimPart].Position)
+            if onScreen then
+                local distance = (Vector2.new(pos.X, pos.Y) - screenCenter).Magnitude
+                if distance < shortestDistance then
+                    target = player
+                    shortestDistance = distance
+                end
+            end
+        end
+    end
+    return target
+end
+
+-- UI Controls
+
+-- 1. ล็อกหัว / ล็อกตัว (Aimbot)
+MainTab:CreateToggle({
+   Name = "Aimbot (ล็อกเป้า)",
+   CurrentValue = false,
+   Callback = function(Value)
+      AimbotEnabled = Value
+   end,
+})
+
+MainTab:CreateDropdown({
+   Name = "Aim Part (ส่วนที่จะล็อก)",
+   Options = {"Head", "HumanoidRootPart"},
+   CurrentOption = {"Head"},
+   Callback = function(Option)
+      AimPart = Option[1]
+   end,
+})
+
+-- 2. เป้าวงกลมสีเหลืองกลางหน้าจอ (FOV)
+MainTab:CreateToggle({
+   Name = "Show FOV (เป้าวงกลมเหลือง)",
+   CurrentValue = false,
+   Callback = function(Value)
+      FOVCircleEnabled = Value
+   end,
+})
+
+MainTab:CreateSlider({
+   Name = "FOV Radius (ขนาดวงกลม)",
+   Range = {30, 500},
+   Increment = 5,
+   Suffix = "px",
+   CurrentValue = 100,
+   Callback = function(Value)
+      FOVRadius = Value
+      FOVCircle.Radius = Value
+   end,
+})
+
+-- 3. เส้นสีแดงเฉพาะฝ่ายตรงข้าม (Tracers)
+MainTab:CreateToggle({
+   Name = "Enemy Tracers (เส้นสีแดง)",
+   CurrentValue = false,
+   Callback = function(Value)
+      TracersEnabled = Value
+   end,
+})
+
+-- 5. มองทะลุเห็นฝ่ายตรงข้ามเป็นกรอบสีม่วง (ESP Box)
+MainTab:CreateToggle({
+   Name = "Enemy Box ESP (กรอบสีม่วง)",
+   CurrentValue = false,
+   Callback = function(Value)
+      ESPEnabled = Value
+   end,
+})
+
+-- 6. กระสุนวิ่งหาศัตรู (Silent Aim)
+MainTab:CreateToggle({
+   Name = "Silent Aim / Bullet Homing (กระสุนไปหาศัตรู)",
+   CurrentValue = false,
+   Callback = function(Value)
+      SilentAimEnabled = Value
+   end,
+})
+
+-- Structure Storage for Tracers
+local Tracers = {}
+
+-- Main Render Loop
+RunService.RenderStepped:Connect(function()
+    -- ล็อกตำแหน่งเป้าไว้ที่จุดศูนย์กลางของหน้าจอเสมอ
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FOVCircle.Position = screenCenter
+    FOVCircle.Visible = FOVCircleEnabled
+
+    local target = GetClosestEnemy()
+
+    -- Aimbot Logic
+    if AimbotEnabled and target and target.Character and target.Character:FindFirstChild(AimPart) then
+        Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Character[AimPart].Position)
+    end
+
+    -- Tracers & ESP Logic
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Team ~= LocalPlayer.Team and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            
+            -- 1. ESP Highlight (Purple)
+            local highlight = player.Character:FindFirstChild("ESPHighlight")
+            if ESPEnabled then
+                if not highlight then
+                    highlight = Instance.new("Highlight")
+                    highlight.Name = "ESPHighlight"
+                    highlight.FillColor = Color3.fromRGB(128, 0, 128) -- สีม่วง
+                    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    highlight.FillTransparency = 0.5
+                    highlight.Parent = player.Character
+                end
+            else
+                if highlight then highlight:Destroy() end
+            end
+
+            -- 2. Tracers (Red Line)
+            if TracersEnabled then
+                if not Tracers[player] then
+                    Tracers[player] = Drawing.new("Line")
+                    Tracers[player].Color = Color3.fromRGB(255, 0, 0) -- สีแดง
+                    Tracers[player].Thickness = 1.5
+                end
+
+                local pos, onScreen = Camera:WorldToViewportPoint(player.Character.HumanoidRootPart.Position)
+                if onScreen then
+                    Tracers[player].From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y) -- เริ่มจากล่างจอ
+                    Tracers[player].To = Vector2.new(pos.X, pos.Y)
+                    Tracers[player].Visible = true
+                else
+                    Tracers[player].Visible = false
+                end
+            else
+                if Tracers[player] then
+                    Tracers[player].Visible = false
+                end
+            end
+        else
+            -- เคลียร์เส้นเมื่อศัตรูตายหรือไม่อยู่ในเงื่อนไข
+            if Tracers[player] then
+                Tracers[player].Visible = false
+            end
+            if player.Character and player.Character:FindFirstChild("ESPHighlight") then
+                player.Character.ESPHighlight:Destroy()
+            end
+        end
+    end
+end)
+
+-- Bullet Homing Loop
+task.spawn(function()
+    while task.wait(0.1) do
+        if SilentAimEnabled then
+            local target = GetClosestEnemy()
+            if target and target.Character and target.Character:FindFirstChild(AimPart) then
+                pcall(function()
+                    ReplicatedStorage.SpawnGalaxyBlock.Event:FireServer(target.Character[AimPart].Position)
+                end)
+            end
+        end
+    end
+end)
+
+Rayfield:Notify({
+   Title = "Galaxy Hub Loaded",
+   Content = "อัปเดตระบบแล้ว: เป้าวงกลมอยู่นิ่งกลางจอเรียบร้อย!",
+   Duration = 5,
+   Image = 4483362458,
+})
