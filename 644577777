@@ -1,0 +1,67 @@
+-- 🔫 ฟังก์ชันที่ 8: เสกปืนแบบระบุชื่อ (Targeted Gun Spawner)
+local SelectedGunName = ""
+
+MainTab:CreateInput({
+   Name = "8.1 ใส่ชื่อปืนที่ต้องการเสก",
+   PlaceholderText = "เช่น AK47, Rifle, Gun",
+   RemoveTextOnFocusLost = false,
+   Callback = function(Text)
+      SelectedGunName = Text
+   end,
+})
+
+MainTab:CreateButton({
+   Name = "8.2 กดเพื่อเสกปืนตามชื่อ",
+   Callback = function()
+      if SelectedGunName == "" then
+         Rayfield:Notify({
+            Title = "Warning",
+            Content = "กรุณากรอบชื่อปืนในช่องด้านบนก่อนครับ",
+            Duration = 3,
+         })
+         return
+      end
+
+      local backpack = LocalPlayer:FindFirstChild("Backpack")
+      local foundCount = 0
+
+      if not backpack then return end
+
+      -- สแกนค้นหาเฉพาะ Tool ที่มีชื่อตรงกับที่กรอกไว้
+      for _, obj in pairs(game:GetDescendants()) do
+         if obj:IsA("Tool") and string.find(string.lower(obj.Name), string.lower(SelectedGunName)) then
+            -- เช็คว่าไม่ได้เป็นปืนที่คนอื่นถืออยู่
+            local inOtherPlayer = false
+            for _, p in pairs(Players:GetPlayers()) do
+               if p ~= LocalPlayer and p.Character and obj:IsDescendantOf(p.Character) then
+                  inOtherPlayer = true
+                  break
+               end
+            end
+
+            if not inOtherPlayer then
+               pcall(function()
+                  local newTool = obj:Clone()
+                  newTool.Parent = backpack
+                  foundCount = foundCount + 1
+               end)
+            end
+         end
+      end
+
+      if foundCount > 0 then
+         Rayfield:Notify({
+            Title = "Success!",
+            Content = "พบและดึง " .. SelectedGunName .. " เข้าตัวแล้ว " .. tostring(foundCount) .. " ชิ้น",
+            Duration = 4,
+            Image = 4483362458,
+         })
+      else
+         Rayfield:Notify({
+            Title = "Failed",
+            Content = "ไม่พบปืนชื่อ '" .. SelectedGunName .. "' ในระบบของเซิร์ฟเวอร์",
+            Duration = 4,
+         })
+      end
+   end,
+})
