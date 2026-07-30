@@ -1,0 +1,210 @@
+-- โหลด Rayfield UI Library
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Game Hub | Custom Script",
+   LoadingTitle = "กำลังโหลดระบบ...",
+   LoadingSubtitle = "by Rayfield",
+   ConfigurationSaving = {
+      Enabled = false,
+   },
+   KeySystem = false
+})
+
+-- ค่าเริ่มต้น (Settings)
+local Settings = {
+   AimbotEnabled = false,
+   TargetPart = "Head", -- "Head" หรือ "HumanoidRootPart"
+   FOVCircle = false,
+   FOVRadius = 100,
+   ESP_Box = false,
+   ESP_Tracer = false,
+   AntiBan = true
+}
+
+-- ตัวแปรระบบ Drawing (FOVCircle)
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(255, 0, 0)
+FOVCircle.Thickness = 1.5
+FOVCircle.NumSides = 64
+FOVCircle.Radius = Settings.FOVRadius
+FOVCircle.Filled = false
+FOVCircle.Visible = false
+
+-- บริการของ Roblox
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- 4. ระบบกันแบนเบื้องต้น (Anti-Ban / Anti-Kick Hooking)
+if setreadonly then
+    local gmt = getrawmetatable(game)
+    setreadonly(gmt, false)
+    local oldNamecall = gmt.__namecall
+    gmt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if Settings.AntiBan and (method == "Kick" or method == "kick") then
+            return nil
+        end
+        return oldNamecall(self, ...)
+    end)
+    setreadonly(gmt, true)
+end
+
+-- สร้าง UI Tabs
+local MainTab = Window:CreateTab("Main Features", 4483362458)
+local LocalEventTab = Window:CreateTab("Local Event", 4483362458)
+
+-- 1. ล็อกหัว / ล็อกตัว (Aimbot)
+MainTab:CreateToggle({
+   Name = "เปิดระบบ Aimbot (ล็อกเป้า)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.AimbotEnabled = Value
+   end,
+})
+
+MainTab:CreateDropdown({
+   Name = "ตำแหน่งการล็อก",
+   Options = {"Head", "HumanoidRootPart"},
+   CurrentOption = "Head",
+   MultipleOptions = false,
+   Callback = function(Option)
+      Settings.TargetPart = Option[1]
+   end,
+})
+
+-- 2. เป้าวงกลมสีแดง (FOV Circle)
+MainTab:CreateToggle({
+   Name = "แสดงเป้าวงกลมสีแดง (FOV)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.FOVCircle = Value
+      FOVCircle.Visible = Value
+   end,
+})
+
+MainTab:CreateSlider({
+   Name = "ขนาดเป้าวงกลม (FOV Radius)",
+   Range = {30, 500},
+   Increment = 5,
+   Suffix = "px",
+   CurrentValue = 100,
+   Callback = function(Value)
+      Settings.FOVRadius = Value
+      FOVCircle.Radius = Value
+   end,
+})
+
+-- 3. เส้นสีแดงตรงฝ่ายตรงข้าม (Tracers)
+MainTab:CreateToggle({
+   Name = "แสดงเส้นชี้ตัวศัตรู (Tracers)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.ESP_Tracer = Value
+   end,
+})
+
+-- 5. มองทะลุเห็นฝ่ายตรงข้ามเป็นกรอบสี่เหลี่ยม (Box ESP)
+MainTab:CreateToggle({
+   Name = "มองทะลุศัตรูเป็นกรอบ (Box ESP)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.ESP_Box = Value
+   end,
+})
+
+-- Local Event Button
+LocalEventTab:CreateButton({
+   Name = "รัน SpawnGalaxy Block Event",
+   Callback = function()
+      pcall(function()
+         ReplicatedStorage.SpawnGalaxyBlock:FireServer()
+      end)
+   end,
+})
+
+-- ฟังก์ชั่นค้นหาเป้าหมายที่ใกล้เมาส์ที่สุด
+local function GetClosestPlayer()
+    local Closest = nil
+    local ShortestDistance = Settings.FOVRadius
+
+    for _, v in pairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild(Settings.TargetPart) and v.Character:FindFirstChildOfClass("Humanoid") then
+            if v.Character.Humanoid.Health > 0 then
+                local PartPos, OnScreen = Camera:WorldToViewportPoint(v.Character[Settings.TargetPart].Position)
+                if OnScreen then
+                    local MousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                    local Distance = (Vector2.new(PartPos.X, PartPos.Y) - MousePos).Magnitude
+                    if Distance < ShortestDistance then
+                        Closest = v.Character[Settings.TargetPart]
+                        ShortestDistance = Distance
+                    end
+                end
+            end
+        end
+    end
+    return Closest
+end
+
+-- การจัดการ ESP และ Tracers แบบ Dynamic
+local Drawings = {}
+
+local function ClearDrawings()
+    for _, d in pairs(Drawings) do
+        if d.Box then d.Box:Remove() end
+        if d.Tracer then d.Tracer:Remove() end
+    end
+    Drawings = {}
+end
+
+-- Main Render Loop
+RunService.RenderStepped:Connect(function()
+    -- อัปเดตตำแหน่ง FOV Circle
+    local CenterScreen = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FOVCircle.Position = CenterScreen
+
+    -- Aimbot Loop
+    if Settings.AimbotEnabled then
+        local Target = GetClosestPlayer()
+        if Target then
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, Target.Position)
+        end
+    end
+
+    -- ESP & Tracer Loop
+    ClearDrawings()
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local hrp = plr.Character.HumanoidRootPart
+            local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+
+            if onScreen then
+                -- Render Tracers
+                if Settings.ESP_Tracer then
+                    local line = Drawing.new("Line")
+                    line.Visible = true
+                    line.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                    line.To = Vector2.new(pos.X, pos.Y)
+                    line.Color = Color3.fromRGB(255, 0, 0)
+                    line.Thickness = 1.5
+                    table.insert(Drawings, {Tracer = line})
+                end
+
+                -- Render Box ESP
+                if Settings.ESP_Box then
+                    local box = Drawing.new("Square")
+                    box.Visible = true
+                    box.Size = Vector2.new(2000 / pos.Z, 3000 / pos.Z)
+                    box.Position = Vector2.new(pos.X - box.Size.X / 2, pos.Y - box.Size.Y / 2)
+                    box.Color = Color3.fromRGB(255, 0, 0)
+                    box.Thickness = 1.5
+                    box.Filled = false
+                    table.insert(Drawings, {Box = box})
+                end
+            end
+        end
+    end
+end)
