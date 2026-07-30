@@ -1,0 +1,206 @@
+-- โหลด Rayfield UI Library
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Galaxy Hub | Script Menu",
+   LoadingTitle = "Galaxy Hub",
+   LoadingSubtitle = "Rayfield UI System",
+   ConfigurationSaving = {
+      Enabled = true,
+      FolderName = "GalaxyHubConfig",
+      FileName = "Settings"
+   },
+   Discord = { Enabled = false },
+   KeySystem = false
+})
+
+-- Services & Local Variables
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+-- Configuration Storage
+local Config = {
+    AimbotEnabled = false,
+    TargetPart = "Head", -- "Head" หรือ "HumanoidRootPart"
+    Smoothness = 0.2,
+    FOVVisible = false,
+    FOVRadius = 120,
+    TracersEnabled = false
+}
+
+-- ----------------------------------------------------------------
+-- 1. วงกลม FOV (Drawing API)
+-- ----------------------------------------------------------------
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+FOVCircle.Thickness = 1.5
+FOVCircle.NumSides = 64
+FOVCircle.Filled = false
+FOVCircle.Transparency = 1
+FOVCircle.Visible = false
+
+-- ----------------------------------------------------------------
+-- 2. ฟังก์ชันค้นหาผู้เล่นที่ใกล้เป้าที่สุด
+-- ----------------------------------------------------------------
+local function GetClosestPlayer()
+    local closestPlayer = nil
+    local shortestDistance = Config.FOVRadius
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local targetPart = player.Character:FindFirstChild(Config.TargetPart)
+            if targetPart then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                if onScreen then
+                    local mousePos = Vector2.new(Mouse.X, Mouse.Y)
+                    local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    
+                    if distance < shortestDistance then
+                        shortestDistance = distance
+                        closestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- ----------------------------------------------------------------
+-- 3. ระบบจัดการเส้น Tracers (สีแดง)
+-- ----------------------------------------------------------------
+local ActiveTracers = {}
+
+local function ClearTracers()
+    for _, tracer in pairs(ActiveTracers) do
+        tracer.Visible = false
+        tracer:Remove()
+    end
+    ActiveTracers = {}
+end
+
+-- ----------------------------------------------------------------
+-- UI TABS & CONTROLS
+-- ----------------------------------------------------------------
+local MainTab = Window:CreateTab("Aimbot & Action", 4483362458)
+local VisualsTab = Window:CreateTab("ESP & FOV", 4483362458)
+
+-- [1] ระบบล็อกหัว / ล็อกตัว
+MainTab:CreateToggle({
+   Name = "เปิดใช้งาน Aimbot (ล็อกเป้า)",
+   CurrentValue = false,
+   Flag = "AimbotToggle",
+   Callback = function(Value)
+       Config.AimbotEnabled = Value
+   end,
+})
+
+MainTab:CreateDropdown({
+   Name = "เลือกตำแหน่งล็อก",
+   Options = {"Head", "HumanoidRootPart"},
+   CurrentOption = {"Head"},
+   MultipleOptions = false,
+   Flag = "TargetPartDropdown",
+   Callback = function(Option)
+       Config.TargetPart = Option[1]
+   end,
+})
+
+MainTab:CreateSlider({
+   Name = "ความสมูทในการล็อก (Smoothness)",
+   Range = {1, 10},
+   Increment = 1,
+   Suffix = "Speed",
+   CurrentValue = 5,
+   Flag = "SmoothSlider",
+   Callback = function(Value)
+       Config.Smoothness = Value / 25
+   end,
+})
+
+-- ปุ่มยิง Remote Event ที่แจ้งไว้
+MainTab:CreateButton({
+   Name = "ยิง Event SpawnGalaxyBlock",
+   Callback = function()
+       pcall(function()
+           game:GetService("ReplicatedStorage"):WaitForChild("SpawnGalaxy Block Event"):FireServer()
+       end)
+   end,
+})
+
+-- [2] ระบบเป้าวงกลม (FOV)
+VisualsTab:CreateToggle({
+   Name = "แสดงเป้าวงกลม (FOV Circle)",
+   CurrentValue = false,
+   Flag = "FOVToggle",
+   Callback = function(Value)
+       Config.FOVVisible = Value
+   end,
+})
+
+VisualsTab:CreateSlider({
+   Name = "ปรับขนาดเป้าวงกลม (Radius)",
+   Range = {40, 400},
+   Increment = 5,
+   Suffix = "px",
+   CurrentValue = 120,
+   Flag = "FOVSlider",
+   Callback = function(Value)
+       Config.FOVRadius = Value
+   end,
+})
+
+-- [3] ระบบเส้นสีแดง (Tracers)
+VisualsTab:CreateToggle({
+   Name = "แสดงเส้นชี้เป้าสีแดง (Tracers)",
+   CurrentValue = false,
+   Flag = "TracersToggle",
+   Callback = function(Value)
+       Config.TracersEnabled = Value
+       if not Value then
+           ClearTracers()
+       end
+   end,
+})
+
+-- ----------------------------------------------------------------
+-- MAIN LOOP (RenderStepped)
+-- ----------------------------------------------------------------
+RunService.RenderStepped:Connect(function()
+    -- อัปเดตขนาดและตำแหน่ง FOV Circle
+    FOVCircle.Position = Vector2.new(Mouse.X, Mouse.Y + 36)
+    FOVCircle.Radius = Config.FOVRadius
+    FOVCircle.Visible = Config.FOVVisible
+
+    -- การทำงานของ Aimbot
+    if Config.AimbotEnabled then
+        local target = GetClosestPlayer()
+        if target and target.Character and target.Character:FindFirstChild(Config.TargetPart) then
+            local targetPos = target.Character[Config.TargetPart].Position
+            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, targetPos), Config.Smoothness)
+        end
+    end
+
+    -- การทำงานของ Tracers (เส้นสีแดง)
+    if Config.TracersEnabled then
+        ClearTracers()
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character.Humanoid.Health > 0 then
+                local partPos, onScreen = Camera:WorldToViewportPoint(player.Character.HumanoidRootPart.Position)
+                if onScreen then
+                    local tracer = Drawing.new("Line")
+                    tracer.Visible = true
+                    tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y) -- ลากจากขอบล่างกลางจอ
+                    tracer.To = Vector2.new(partPos.X, partPos.Y)
+                    tracer.Color = Color3.fromRGB(255, 0, 0) -- สีแดง
+                    tracer.Thickness = 1.5
+                    tracer.Transparency = 1
+                    table.insert(ActiveTracers, tracer)
+                end
+            end
+        end
+    end
+end)
