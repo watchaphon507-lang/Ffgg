@@ -1,0 +1,219 @@
+-- โหลด Rayfield UI Library
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Main Control Hub",
+   LoadingTitle = "Loading Script...",
+   LoadingSubtitle = "by Assistant",
+   ConfigurationSaving = { Enabled = false },
+   KeySystem = false
+})
+
+-- บริการพื้นฐาน
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- ตัวแปรสถานะเปิด-ปิด (States)
+local Settings = {
+    Aimbot = false,
+    FOV = 150,
+    ShowFOV = false,
+    ESP = false,
+    WalkSpeed = 16,
+    JumpPower = 50,
+    Tracers = false
+}
+
+-- สร้างวงกลม FOV หน้าจอ
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 2
+FOVCircle.Color = Color3.fromRGB(255, 0, 0)
+FOVCircle.Filled = false
+FOVCircle.Transparency = 1
+FOVCircle.NumSides = 60
+
+-- ==================== Tabs ====================
+local CombatTab = Window:CreateTab("Combat", 4483362458)
+local VisualsTab = Window:CreateTab("Visuals", 4483362458)
+local MovementTab = Window:CreateTab("Movement", 4483362458)
+local MiscTab = Window:CreateTab("Misc", 4483362458)
+
+-- ==================== 1. COMBAT (ล็อกหัว + FOV) ====================
+CombatTab:CreateToggle({
+   Name = "เปิดระบบล็อกหัว (Aimbot)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.Aimbot = Value
+   end,
+})
+
+CombatTab:CreateToggle({
+   Name = "แสดงวงกลม FOV",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.ShowFOV = Value
+      FOVCircle.Visible = Value
+   end,
+})
+
+CombatTab:CreateSlider({
+   Name = "ขนาดวงกลม FOV",
+   Range = {50, 500},
+   Increment = 10,
+   Suffix = "px",
+   CurrentValue = 150,
+   Callback = function(Value)
+      Settings.FOV = Value
+      FOVCircle.Radius = Value
+   end,
+})
+
+CombatTab:CreateToggle({
+   Name = "แสดงเส้นยิง/เล็ง (Tracers)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.Tracers = Value
+   end,
+})
+
+-- ฟังก์ชันค้นหาเป้าหมายในวงกลม FOV
+local function GetClosestPlayerInFOV()
+    local ClosestTarget = nil
+    local MaxDistance = Settings.FOV
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local HeadPos, OnScreen = Camera:WorldToViewportPoint(player.Character.Head.Position)
+            if OnScreen then
+                local MousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                local Distance = (Vector2.new(HeadPos.X, HeadPos.Y) - MousePos).Magnitude
+                
+                if Distance < MaxDistance then
+                    MaxDistance = Distance
+                    ClosestTarget = player.Character.Head
+                end
+            end
+        end
+    end
+    return ClosestTarget
+end
+
+-- ลูปการทำงาน Aimbot & FOV
+RunService.RenderStepped:Connect(function()
+    -- อัปเดตตำแหน่งวงกลมตรงกลางหน้าจอ
+    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    
+    -- ระบบล็อกหัว
+    if Settings.Aimbot then
+        local TargetHead = GetClosestPlayerInFOV()
+        if TargetHead then
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, TargetHead.Position)
+        end
+    end
+end)
+
+-- ==================== 2. VISUALS (มองทะลุ ESP + ส่องของในตัว) ====================
+VisualsTab:CreateToggle({
+   Name = "มองทะลุผู้เล่น (ESP Highlight)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Settings.ESP = Value
+      for _, player in pairs(Players:GetPlayers()) do
+         if player ~= LocalPlayer and player.Character then
+            if Value then
+               if not player.Character:FindFirstChild("ESPHighlight") then
+                  local Highlight = Instance.new("Highlight")
+                  Highlight.Name = "ESPHighlight"
+                  Highlight.FillColor = Color3.fromRGB(255, 0, 0)
+                  Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                  Highlight.Parent = player.Character
+               end
+            else
+               if player.Character:FindFirstChild("ESPHighlight") then
+                  player.Character.ESPHighlight:Destroy()
+               end
+            end
+         end
+      end
+   end,
+})
+
+VisualsTab:CreateButton({
+   Name = "ส่องของในตัวผู้เล่นทุกคน (Console/Output)",
+   Callback = function()
+      print("--- รายชื่อไอเทมของผู้เล่น ---")
+      for _, player in pairs(Players:GetPlayers()) do
+         print("[" .. player.Name .. "] มีของดังนี้:")
+         if player:FindFirstChild("Backpack") then
+            for _, item in pairs(player.Backpack:GetChildren()) do
+               print(" - " .. item.Name)
+            end
+         end
+         if player.Character then
+            for _, item in pairs(player.Character:GetChildren()) do
+               if item:IsA("Tool") then
+                  print(" - [กำลังถือ] " .. item.Name)
+               end
+            end
+         end
+      end
+      Rayfield:Notify({ Title = "เรียบร้อย", Content = "เช็ครายการของใน Output/Console (กด F9)", Duration = 3 })
+   end,
+})
+
+-- ==================== 3. MOVEMENT (วิ่งเร็ว / กระโดดสูง) ====================
+MovementTab:CreateSlider({
+   Name = "ความเร็วการเดิน (WalkSpeed)",
+   Range = {16, 250},
+   Increment = 1,
+   Suffix = "Speed",
+   CurrentValue = 16,
+   Callback = function(Value)
+      Settings.WalkSpeed = Value
+      if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+         LocalPlayer.Character.Humanoid.WalkSpeed = Value
+      end
+   end,
+})
+
+MovementTab:CreateSlider({
+   Name = "แรงกระโดด (JumpPower)",
+   Range = {50, 300},
+   Increment = 5,
+   Suffix = "Power",
+   CurrentValue = 50,
+   Callback = function(Value)
+      Settings.JumpPower = Value
+      if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+         LocalPlayer.Character.Humanoid.UseJumpPower = true
+         LocalPlayer.Character.Humanoid.JumpPower = Value
+      end
+   end,
+})
+
+-- ==================== 4. MISC & EVENT (ยิง RemoteEvent ที่ส่งมา) ====================
+MiscTab:CreateButton({
+   Name = "ยิง Event SpawnGalaxyBlock",
+   Callback = function()
+      local success, err = pcall(function()
+         game:GetService("ReplicatedStorage").SpawnGalaxyBlock.Event:FireServer()
+      end)
+      if success then
+         Rayfield:Notify({ Title = "สำเร็จ", Content = "ยิง RemoteEvent เรียบร้อยแล้ว", Duration = 3 })
+      else
+         Rayfield:Notify({ Title = "ผิดพลาด", Content = tostring(err), Duration = 3 })
+      end
+   end,
+})
+
+-- เช็คตัวละครตายแล้วเกิดใหม่ให้ค่าความเร็ว/กระโดดไม่หาย
+LocalPlayer.CharacterAdded:Connect(function(Char)
+    Char:WaitForChild("Humanoid")
+    Char.Humanoid.WalkSpeed = Settings.WalkSpeed
+    Char.Humanoid.UseJumpPower = true
+    Char.Humanoid.JumpPower = Settings.JumpPower
+end)
