@@ -1,0 +1,246 @@
+-- [[ Rayfield Load & Window Setup ]]
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Galaxy Event & Combat Script",
+   LoadingTitle = "Loading System...",
+   LoadingSubtitle = "by Assistant",
+   ConfigurationSaving = {
+      Enabled = false,
+   },
+   KeySystem = false
+})
+
+-- [[ Main Variables ]]
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Toggle States
+local TargetPart = "Head" -- "Head" หรือ "HumanoidRootPart"
+local FOVRadius = 100
+local ShowFOV = false
+local ESP_Boxes = false
+local ESP_Tracer = false
+local BulletRedirect = false
+local EventLoop = false
+
+-- [[ FOV Circle Drawing ]]
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(255, 0, 0)
+FOVCircle.Thickness = 1.5
+FOVCircle.Filled = false
+FOVCircle.Transparency = 1
+FOVCircle.Visible = false
+
+-- [[ Helper Functions ]]
+local function GetClosestEnemy()
+    local closestPlayer = nil
+    local shortestDistance = FOVRadius
+    local mousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Team ~= LocalPlayer.Team then
+            local char = player.Character
+            if char and char:FindFirstChild(TargetPart) and char:FindFirstChildOfClass("Humanoid") and char.Humanoid.Health > 0 then
+                local partPos, onScreen = Camera:WorldToViewportPoint(char[TargetPart].Position)
+                if onScreen then
+                    local distance = (Vector2.new(partPos.X, partPos.Y) - mousePos).Magnitude
+                    if distance < shortestDistance then
+                        shortestDistance = distance
+                        closestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- Anti-Ban Baseline Hook (Safe Call Guard)
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+    
+    -- Silent Aim / Bullet Redirect (ส่งกระสุนไปที่เป้าหมาย)
+    if BulletRedirect and not checkcaller() and (method == "FireServer" or method == "InvokeServer") then
+        local target = GetClosestEnemy()
+        if target and target.Character and target.Character:FindFirstChild(TargetPart) then
+            -- เปลี่ยนแปลงพารามิเตอร์ของ Raycast/Bullet Vector ถ้าพบเป้าหมาย
+            for i, arg in pairs(args) do
+                if typeof(arg) == "Vector3" then
+                    args[i] = target.Character[TargetPart].Position
+                end
+            end
+        end
+    end
+    
+    return oldNamecall(self, unpack(args))
+end)
+
+-- [[ Rayfield UI Tabs ]]
+local CombatTab = Window:CreateTab("Combat & Aim", 4483362458)
+local VisualsTab = Window:CreateTab("Visuals (ESP)", 4483362458)
+local EventTab = Window:CreateTab("Event System", 4483362458)
+
+-- --- Combat Tab ---
+CombatTab:CreateDropdown({
+   Name = "Lock Target Part (ส่วนที่ล็อก)",
+   Options = {"Head", "HumanoidRootPart"},
+   CurrentOption = "Head",
+   Callback = function(Option)
+      TargetPart = Option[1] or Option
+   end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Show FOV Circle (เป้าวงกลมแดง)",
+   CurrentValue = false,
+   Callback = function(Value)
+      ShowFOV = Value
+   end,
+})
+
+CombatTab:CreateSlider({
+   Name = "FOV Circle Size (ปรับขนาดเป้า)",
+   Range = {30, 500},
+   Increment = 5,
+   Suffix = "px",
+   CurrentValue = 100,
+   Callback = function(Value)
+      FOVRadius = Value
+   end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Bullet Redirect / Silent Aim (กระสุนไปหาศัตรู)",
+   CurrentValue = false,
+   Callback = function(Value)
+      BulletRedirect = Value
+   end,
+})
+
+-- --- Visuals Tab ---
+VisualsTab:CreateToggle({
+   Name = "ESP Box (กรอบสีม่วง - ฝ่ายตรงข้าม)",
+   CurrentValue = false,
+   Callback = function(Value)
+      ESP_Boxes = Value
+   end,
+})
+
+VisualsTab:CreateToggle({
+   Name = "Tracers (เส้นสีแดง - ฝ่ายตรงข้าม)",
+   CurrentValue = false,
+   Callback = function(Value)
+      ESP_Tracer = Value
+   end,
+})
+
+-- --- Event Tab ---
+EventTab:CreateToggle({
+   Name = "Auto Fire Event (SpawnGalaxy Block)",
+   CurrentValue = false,
+   Callback = function(Value)
+      EventLoop = Value
+   end,
+})
+
+-- [[ Main Loop Engine ]]
+RunService.RenderStepped:Connect(function()
+    -- Update FOV Circle
+    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FOVCircle.Radius = FOVRadius
+    FOVCircle.Visible = ShowFOV
+
+    -- Event Spam Loop
+    if EventLoop then
+        pcall(function()
+            ReplicatedStorage.SpawnGalaxy:FireServer()
+        end)
+    end
+end)
+
+-- [[ ESP & Tracer Rendering Engine ]]
+local Drawings = {}
+
+local function ClearDrawings()
+    for _, drawGroup in pairs(Drawings) do
+        if drawGroup.Box then drawGroup.Box:Remove() end
+        if drawGroup.Tracer then drawGroup.Tracer:Remove() end
+    end
+    Drawings = {}
+end
+
+RunService.RenderStepped:Connect(function()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local isEnemy = (player.Team ~= LocalPlayer.Team)
+            local char = player.Character
+
+            if isEnemy and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChildOfClass("Humanoid") and char.Humanoid.Health > 0 then
+                if not Drawings[player] then
+                    Drawings[player] = {
+                        Box = Drawing.new("Square"),
+                        Tracer = Drawing.new("Line")
+                    }
+                    -- Box Settings (Purple)
+                    Drawings[player].Box.Color = Color3.fromRGB(170, 0, 255)
+                    Drawings[player].Box.Thickness = 1.5
+                    Drawings[player].Box.Filled = false
+
+                    -- Tracer Settings (Red)
+                    Drawings[player].Tracer.Color = Color3.fromRGB(255, 0, 0)
+                    Drawings[player].Tracer.Thickness = 1
+                end
+
+                local hrp = char.HumanoidRootPart
+                local vector, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+
+                if onScreen then
+                    -- Draw Purple Box
+                    if ESP_Boxes then
+                        local head = char:FindFirstChild("Head")
+                        local headPos = head and Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0)) or vector
+                        local height = math.abs(vector.Y - headPos.Y) * 2
+                        local width = height / 1.5
+
+                        Drawings[player].Box.Size = Vector2.new(width, height)
+                        Drawings[player].Box.Position = Vector2.new(vector.X - width / 2, vector.Y - height / 2)
+                        Drawings[player].Box.Visible = true
+                    else
+                        Drawings[player].Box.Visible = false
+                    end
+
+                    -- Draw Red Tracer (From Bottom of Screen)
+                    if ESP_Tracer then
+                        Drawings[player].Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                        Drawings[player].Tracer.To = Vector2.new(vector.X, vector.Y)
+                        Drawings[player].Tracer.Visible = true
+                    else
+                        Drawings[player].Tracer.Visible = false
+                    end
+                else
+                    Drawings[player].Box.Visible = false
+                    Drawings[player].Tracer.Visible = false
+                end
+            else
+                if Drawings[player] then
+                    Drawings[player].Box.Visible = false
+                    Drawings[player].Tracer.Visible = false
+                end
+            end
+        end
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    if Drawings[player] then
+        if Drawings[player].Box then Drawings[player].Box:Remove() end
+        if Drawings[player].Tracer then Drawings[player].Tracer:Remove() end
+        Drawings[player] = nil
+    end
+end)
