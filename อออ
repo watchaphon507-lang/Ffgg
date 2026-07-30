@@ -1,0 +1,248 @@
+-- โหลด Rayfield UI Library
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "HUB - Game Script",
+   LoadingTitle = "Loading System...",
+   LoadingSubtitle = "by Assistant",
+   ConfigurationSaving = {
+      Enabled = false,
+   },
+   Discord = {
+      Enabled = false
+   },
+   KeySystem = false
+})
+
+-- Services & Variables
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
+local RunService = game:GetService("RunService")
+
+-- Configuration
+local Config = {
+    Aimbot = false,
+    AimPart = "Head", -- "Head" หรือ "HumanoidRootPart"
+    FOV_Enabled = false,
+    FOV_Radius = 100,
+    Tracers = false,
+    ESP_Box = false,
+    SilentAim = false,
+    AntiBan = true
+}
+
+-- 4. ระบบกันแบน (Anti-Ban / Anti-Kick)
+if Config.AntiBan then
+    local mt = getrawmetatable(game)
+    local oldNamecall = mt.__namecall
+    setreadonly(mt, false)
+    
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if method == "Kick" or method == "kick" then
+            return nil -- บล็อกคำสั่ง Kick จากเกม
+        end
+        return oldNamecall(self, ...)
+    end)
+    setreadonly(mt, true)
+end
+
+-- ฟังก์ชันเช็คว่าอยู่ทีมเดียวกันหรือไม่
+local function isEnemy(player)
+    if player == LocalPlayer then return false end
+    if player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+        return false
+    end
+    return true
+end
+
+-- 2. สร้างเป้าวงกลม FOV (สีเหลือง)
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(255, 255, 0) -- สีเหลือง
+FOVCircle.Thickness = 1.5
+FOVCircle.Filled = false
+FOVCircle.Transparent = 1
+FOVCircle.Visible = false
+
+-- หาศัตรูที่อยู่ใกล้เป้ามากที่สุด
+local function getClosestEnemy()
+    local closestPlayer = nil
+    local shortestDistance = Config.FOV_Enabled and Config.FOV_Radius or math.huge
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if isEnemy(player) and player.Character and player.Character:FindFirstChild(Config.AimPart) and player.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
+            local pos, onScreen = Camera:WorldToViewportPoint(player.Character[Config.AimPart].Position)
+            if onScreen then
+                local mousePos = Vector2.new(Mouse.X, Mouse.Y)
+                local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+                if dist < shortestDistance then
+                    shortestDistance = dist
+                    closestPlayer = player
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- TAB: Main Functions
+local MainTab = Window:CreateTab("Main", 4483362458)
+
+-- 1. ล็อกหัว / ล็อกตัว (Aimbot)
+MainTab:CreateToggle({
+   Name = "เปิดใช้งาน ล็อกเป้า (Aimbot)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Config.Aimbot = Value
+   end,
+})
+
+MainTab:CreateDropdown({
+   Name = "ตำแหน่งที่ล็อก",
+   Options = {"Head", "HumanoidRootPart"},
+   CurrentOption = {"Head"},
+   MultipleOptions = false,
+   Callback = function(Option)
+      Config.AimPart = Option[1]
+   end,
+})
+
+-- 2. เป้าวงกลมสีเหลือง
+MainTab:CreateToggle({
+   Name = "แสดงวงกลม FOV",
+   CurrentValue = false,
+   Callback = function(Value)
+      Config.FOV_Enabled = Value
+      FOVCircle.Visible = Value
+   end,
+})
+
+MainTab:CreateSlider({
+   Name = "ปรับขนาดวงกลม FOV",
+   Range = {30, 500},
+   Increment = 5,
+   Suffix = "px",
+   CurrentValue = 100,
+   Callback = function(Value)
+      Config.FOV_Radius = Value
+      FOVCircle.Radius = Value
+   end,
+})
+
+-- 3. เส้น Tracers (สีแดง - ฝ่ายตรงข้ามเท่านั้น)
+MainTab:CreateToggle({
+   Name = "เส้น Tracers สีแดง (เฉพาะศัตรู)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Config.Tracers = Value
+   end,
+})
+
+-- 5. ESP กล่องสี่เหลี่ยมสีม่วง (เฉพาะศัตรู)
+MainTab:CreateToggle({
+   Name = "มองทะลุกล่องสีม่วง (เฉพาะศัตรู)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Config.ESP_Box = Value
+   end,
+})
+
+-- 6. กระสุนวิ่งหาศัตรู (Silent Aim / Event Spoof)
+MainTab:CreateToggle({
+   Name = "กระสุนไปหาศัตรู (SpawnGalaxy Mod)",
+   CurrentValue = false,
+   Callback = function(Value)
+      Config.SilentAim = Value
+   end,
+})
+
+-- Main Render Loop
+local TracerLines = {}
+local HighlightBoxes = {}
+
+RunService.RenderStepped:Connect(function()
+    -- อัปเดตตำแหน่งวงกลมตามเมาส์
+    FOVCircle.Position = Vector2.new(Mouse.X, Mouse.Y + 36) -- ชดเชยระยะ Topbar
+
+    local target = getClosestEnemy()
+
+    -- 1. Aimbot System
+    if Config.Aimbot and target and target.Character and target.Character:FindFirstChild(Config.AimPart) then
+        Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Character[Config.AimPart].Position)
+    end
+
+    -- เคลียร์วาดเก่า
+    for _, line in pairs(TracerLines) do line:Remove() end
+    table.clear(TracerLines)
+
+    for _, highlight in pairs(HighlightBoxes) do highlight:Destroy() end
+    table.clear(HighlightBoxes)
+
+    -- วนลูปแสดงผล Visuals
+    for _, player in pairs(Players:GetPlayers()) do
+        if isEnemy(player) and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
+            
+            -- 3. Tracers สีแดง
+            if Config.Tracers then
+                local pos, onScreen = Camera:WorldToViewportPoint(player.Character.HumanoidRootPart.Position)
+                if onScreen then
+                    local line = Drawing.new("Line")
+                    line.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                    line.To = Vector2.new(pos.X, pos.Y)
+                    line.Color = Color3.fromRGB(255, 0, 0) -- สีแดง
+                    line.Thickness = 1.5
+                    line.Transparency = 1
+                    line.Visible = true
+                    table.insert(TracerLines, line)
+                end
+            end
+
+            -- 5. ESP สีม่วง
+            if Config.ESP_Box then
+                if not player.Character:FindFirstChild("ESPHighlight") then
+                    local highlight = Instance.new("Highlight")
+                    highlight.Name = "ESPHighlight"
+                    highlight.Adornee = player.Character
+                    highlight.FillColor = Color3.fromRGB(128, 0, 128) -- สีม่วง
+                    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    highlight.FillTransparency = 0.5
+                    highlight.OutlineTransparency = 0
+                    highlight.Parent = player.Character
+                    table.insert(HighlightBoxes, highlight)
+                end
+            end
+        end
+    end
+end)
+
+-- 6. Hook Event กระสุนไปหาศัตรู (SpawnGalaxy)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local originalFireServer
+
+task.spawn(function()
+    local remote = ReplicatedStorage:WaitForChild("SpawnGalaxy", 5)
+    if remote and remote:IsA("RemoteEvent") then
+        local gmt = getrawmetatable(game)
+        local oldIndex = gmt.__namecall
+        setreadonly(gmt, false)
+
+        gmt.__namecall = newcclosure(function(self, ...)
+            local args = {...}
+            local method = getnamecallmethod()
+
+            if self == remote and method == "FireServer" and Config.SilentAim then
+                local closest = getClosestEnemy()
+                if closest and closest.Character and closest.Character:FindFirstChild(Config.AimPart) then
+                    -- ปรับเปลี่ยนตำแหน่งเป้าหมายใน Event ให้ยิงเข้าตัวศัตรูโดยตรง
+                    args[1] = closest.Character[Config.AimPart].Position
+                    return oldIndex(self, unpack(args))
+                end
+            end
+
+            return oldIndex(self, ...)
+        end)
+        setreadonly(gmt, true)
+    end
+end)
