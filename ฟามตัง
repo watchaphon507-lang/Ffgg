@@ -1,0 +1,101 @@
+-- โหลด Rayfield Library
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- สร้าง หน้าต่าง UI
+local Window = Rayfield:CreateWindow({
+   Name = "Script Hub | Rayfield UI",
+   LoadingTitle = "กำลังโหลดสคริปต์...",
+   LoadingSubtitle = "by Assistant",
+   ConfigurationSaving = {
+      Enabled = false,
+   },
+   Discord = {
+      Enabled = false,
+   },
+   KeySystem = false
+})
+
+-- สร้าง แท็บเมนูหลัก
+local MainTab = Window:CreateTab("ฟังชั่นหลัก", 4483362458) -- ใช้ ไอคอน ID ทั่วไป
+
+-- ตัวแปรสถานะเปิด-ปิดระบบ (Toggles)
+local AntiAFK_Enabled = false
+local AutoFarm_Enabled = false
+local AutoSpawnCar_Enabled = false
+
+----------------------------------------------------------------
+-- 1. ระบบ Anti-AFK (กันโดนเตะเวลานอนฟาร์ม)
+----------------------------------------------------------------
+MainTab:CreateToggle({
+   Name = "1. ระบบ AFK (กันหลุด)",
+   CurrentValue = false,
+   Flag = "AntiAFK_Toggle",
+   Callback = function(Value)
+      AntiAFK_Enabled = Value
+      if AntiAFK_Enabled then
+         Rayfield:Notify({Title = "Anti-AFK", Content = "เปิดใช้งานระบบกันหลุดแล้ว", Duration = 3})
+      end
+   end,
+})
+
+-- Loop ทำงานของ Anti-AFK
+local VirtualUser = game:GetService("VirtualUser")
+game:GetService("Players").LocalPlayer.Idled:Connect(function()
+   if AntiAFK_Enabled then
+      VirtualUser:CaptureController()
+      VirtualUser:ClickButton2(Vector2.new(0,0))
+   end
+end)
+
+----------------------------------------------------------------
+-- 2. ระบบ ฟาร์มตังค์ (Auto Farm)
+----------------------------------------------------------------
+MainTab:CreateToggle({
+   Name = "2. ฟาร์มตังค์ (Auto Farm)",
+   CurrentValue = false,
+   Flag = "AutoFarm_Toggle",
+   Callback = function(Value)
+      AutoFarm_Enabled = Value
+   end,
+})
+
+-- Loop ทำงานของ Auto Farm (ยิง Event รัวๆ เมื่อเปิดใช้งาน)
+task.spawn(function()
+   while task.wait(0.1) do -- ปรับเวลาดีเลย์ได้ตามต้องการ
+      if AutoFarm_Enabled then
+         pcall(function()
+            game:GetService("ReplicatedStorage").SpawnGalaxyBlockEvent:FireServer()
+         end)
+      end
+   end
+end)
+
+----------------------------------------------------------------
+-- 3. ระบบ เสกรถอัตโนมัติ (Auto Spawn Vehicle)
+----------------------------------------------------------------
+MainTab:CreateToggle({
+   Name = "3. เสกรถอัตโนมัติ",
+   CurrentValue = false,
+   Flag = "AutoSpawnCar_Toggle",
+   Callback = function(Value)
+      AutoSpawnCar_Enabled = Value
+   end,
+})
+
+-- Loop ทำงานของ เสกรถอัตโนมัติ
+task.spawn(function()
+   while task.wait(1) do -- เสกรถทุกๆ 1 วินาที (ป้องกันเกมแลค)
+      if AutoSpawnCar_Enabled then
+         pcall(function()
+            game:GetService("ReplicatedStorage").SpawnGalaxyBlockEvent:FireServer()
+         end)
+      end
+   end
+end)
+
+-- แจ้งเตือนเมื่อสคริปต์โหลดเสร็จ
+Rayfield:Notify({
+   Title = "สำเร็จ!",
+   Content = "สคริปต์พร้อมใช้งานแล้ว",
+   Duration = 5
+})
