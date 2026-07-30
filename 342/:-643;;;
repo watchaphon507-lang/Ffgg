@@ -1,0 +1,230 @@
+local success, err = pcall(function()
+
+    -- 1. Load Rayfield UI Library
+    local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+    local Window = Rayfield:CreateWindow({
+       Name = "Galaxy Hub | Working Wallbang & Aim",
+       LoadingTitle = "Galaxy Hub Loading...",
+       LoadingSubtitle = "by Assistant",
+       ConfigurationSaving = { Enabled = false },
+       KeySystem = false
+    })
+
+    local MainTab = Window:CreateTab("Main Features", 4483362458)
+
+    -- Variables
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+    local Camera = workspace.CurrentCamera
+    local RunService = game:GetService("RunService")
+
+    local AimbotEnabled = false
+    local AimPartOption = "Head"
+    local AimOffsetY = 1.0
+    local FOVCircleEnabled = false
+    local FOVRadius = 250
+    local ESPEnabled = false
+    local WallbangEnabled = false
+    local ExpandHitboxEnabled = false
+
+    -- FOV Circle Setup
+    local FOVCircle = nil
+    pcall(function()
+        if Drawing then
+            FOVCircle = Drawing.new("Circle")
+            FOVCircle.Color = Color3.fromRGB(255, 255, 0)
+            FOVCircle.Thickness = 1.5
+            FOVCircle.NumSides = 60
+            FOVCircle.Filled = false
+            FOVCircle.Visible = false
+        end
+    end)
+
+    -- 🎯 ค้นหาตำแหน่งเป้าหมาย + ปรับระดับความสูง
+    local function GetTargetPosition(character)
+        if not character then return nil end
+
+        local targetPart = nil
+        if AimPartOption == "Head" then
+            targetPart = character:FindFirstChild("Head") 
+                or character:FindFirstChild("head") 
+                or character:FindFirstChild("UpperTorso")
+        else
+            targetPart = character:FindFirstChild("HumanoidRootPart") 
+                or character:FindFirstChild("Torso") 
+                or character:FindFirstChild("UpperTorso")
+        end
+
+        if targetPart then
+            return targetPart.Position + Vector3.new(0, AimOffsetY, 0)
+        end
+        return nil
+    end
+
+    -- 🎯 ค้นหาเป้าหมาย (รองรับ Wallbang แม้อยู่นอกสายตา/หลังกำแพง)
+    local function GetClosestTarget()
+        local target = nil
+        local shortestDistance = FOVRadius
+        local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local targetPos = GetTargetPosition(player.Character)
+                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+
+                if targetPos and (not humanoid or humanoid.Health > 0) then
+                    local pos, onScreen = Camera:WorldToViewportPoint(targetPos)
+                    -- ถ้าเปิด Wallbang ไม่จำเป็นต้องเช็กว่าอยู่นบนหน้าจอ (onScreen) หรือไม่
+                    if WallbangEnabled or onScreen then
+                        local distance = (Vector2.new(pos.X, pos.Y) - screenCenter).Magnitude
+                        if distance < shortestDistance then
+                            target = player
+                            shortestDistance = distance
+                        end
+                    end
+                end
+            end
+        end
+        return target
+    end
+
+    -- ================= UI Controls ================= --
+
+    MainTab:CreateToggle({
+       Name = "1. Aimbot (ล็อกเป้าตรงตัว)",
+       CurrentValue = false,
+       Callback = function(Value) AimbotEnabled = Value end,
+    })
+
+    MainTab:CreateSlider({
+       Name = "1.1 Aim Height Offset (แก้อาการเป้าลงต่ำ)",
+       Range = {-2, 5},
+       Increment = 0.5,
+       Suffix = "m",
+       CurrentValue = 1.0,
+       Callback = function(Value) AimOffsetY = Value end,
+    })
+
+    MainTab:CreateToggle({
+       Name = "2. Show FOV (เป้าวงกลม)",
+       CurrentValue = false,
+       Callback = function(Value) FOVCircleEnabled = Value end,
+    })
+
+    MainTab:CreateSlider({
+       Name = "2.1 FOV Radius (ขนาดเป้า)",
+       Range = {50, 800},
+       Increment = 10,
+       Suffix = "px",
+       CurrentValue = 250,
+       Callback = function(Value)
+          FOVRadius = Value
+          if FOVCircle then FOVCircle.Radius = Value end
+       end,
+    })
+
+    MainTab:CreateToggle({
+       Name = "3. Enemy ESP (มองทะลุ)",
+       CurrentValue = false,
+       Callback = function(Value) ESPEnabled = Value end,
+    })
+
+    -- 🧱 ฟังก์ชันยิงทะลุกำแพง (Wallbang System)
+    MainTab:CreateToggle({
+       Name = "🧱 4. Wallbang (ยิงทะลุกำแพง/สิ่งกีดขวาง)",
+       CurrentValue = false,
+       Callback = function(Value) 
+          WallbangEnabled = Value 
+          task.spawn(function()
+              -- วิธีที่ 1: ลบการชนกันของวัตถุทั้งหมดใน Map
+              for _, obj in pairs(workspace:GetDescendants()) do
+                  if obj:IsA("BasePart") and not obj:IsDescendantOf(LocalPlayer.Character) then
+                      pcall(function()
+                          if WallbangEnabled then
+                              if obj.Name ~= "Terrain" and not obj:FindFirstChildOfClass("Humanoid") then
+                                  obj.CanCollide = false
+                                  obj.CanQuery = false -- บล็อกไม่ให้วิธีกระสุนตรวจเจอสิ่งกีดขวาง
+                              end
+                          else
+                              obj.CanCollide = true
+                              obj.CanQuery = true
+                          end
+                      end)
+                  end
+              end
+          end)
+       end,
+    })
+
+    MainTab:CreateToggle({
+       Name = "📦 5. Expand Hitbox (ขยายตัวศัตรูทะลุกำแพง)",
+       CurrentValue = false,
+       Callback = function(Value)
+          ExpandHitboxEnabled = Value
+       end,
+    })
+
+    -- 🔄 Loop ขยาย Hitbox และบายพาส Raycast สำหรับ Wallbang
+    task.spawn(function()
+        while task.wait(0.2) do
+            pcall(function()
+                for _, player in pairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                        if hrp then
+                            if ExpandHitboxEnabled then
+                                -- ขยายเป้าให้ใหญ่ยักษ์จนโผล่ทะลุกำแพงมาให้ยิงโดน
+                                hrp.Size = Vector3.new(10, 10, 10)
+                                hrp.Transparency = 0.7
+                                hrp.BrickColor = BrickColor.new("Really red")
+                                hrp.CanCollide = false
+                            else
+                                hrp.Size = Vector3.new(2, 2, 1)
+                                hrp.Transparency = 1
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+
+    -- Render Loop
+    RunService.RenderStepped:Connect(function()
+        if FOVCircle then
+            FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+            FOVCircle.Radius = FOVRadius
+            FOVCircle.Visible = FOVCircleEnabled
+        end
+
+        local targetPlayer = GetClosestTarget()
+
+        -- Aimbot ล็อกแม้ศัตรูจะซ่อนหลังกำแพง
+        if AimbotEnabled and targetPlayer and targetPlayer.Character then
+            local targetPos = GetTargetPosition(targetPlayer.Character)
+            if targetPos then
+                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+            end
+        end
+
+        -- ESP
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local highlight = player.Character:FindFirstChild("ESPHighlight")
+                if ESPEnabled then
+                    if not highlight then
+                        highlight = Instance.new("Highlight")
+                        highlight.Name = "ESPHighlight"
+                        highlight.FillColor = Color3.fromRGB(128, 0, 128)
+                        highlight.Parent = player.Character
+                    end
+                else
+                    if highlight then highlight:Destroy() end
+                end
+            end
+        end
+    end)
+
+    Rayfield:Notify({ Title = "Galaxy Hub Ready", Content = "อัปเดตระบบ Wallbang เรียบร้อยแล้ว!", Duration = 4 })
+end)
